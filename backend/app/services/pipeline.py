@@ -1,11 +1,23 @@
 from uuid import uuid4
+from pathlib import Path
 
 from backend.app.core.config import get_settings
-from backend.app.models.jobs import JobRecord, JobStatus, UploadRequest
+from backend.app.models.jobs import JobRecord, JobStatus, UploadRequest, VideoArtifact
 from backend.app.services.job_store import InMemoryJobStore, job_store
 from backend.app.services.mock_video import MockVideoGenerator
 from backend.app.services.gpu_scheduler import SingleGpuScheduler, scheduler
 from backend.app.services.cuda_probe_video import CudaProbeVideoGenerator
+from backend.app.services.wan_video import WanVideoGenerator
+from backend.app.services.video_assembly import assemble_mp4
+from functools import lru_cache
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def get_wan_generator(output_dir) -> WanVideoGenerator:
+    return WanVideoGenerator(output_dir)
 
 
 class LocalPipeline:
@@ -16,6 +28,8 @@ class LocalPipeline:
         settings = get_settings()
         if settings.generator_backend == "cuda_probe":
             self.generator = CudaProbeVideoGenerator(settings.storage_dir, settings.mock_clip_seconds)
+        elif settings.generator_backend == "wan":
+            self.generator = get_wan_generator(settings.storage_dir)
         elif settings.generator_backend == "mock":
             self.generator = MockVideoGenerator(settings.storage_dir, settings.mock_clip_seconds)
         else:
@@ -41,17 +55,28 @@ class LocalPipeline:
             for index, segment in enumerate(job.segments, start=1):
                 segment_id = f"{job.doc_id}-{uuid4().hex[:8]}"
                 def generate(gpu_id: int):
-                    if isinstance(self.generator, CudaProbeVideoGenerator):
+                    if isinstance(self.generator, (CudaProbeVideoGenerator, WanVideoGenerator)):
                         artifact = self.generator.generate(segment_id, segment, gpu_id)
                     else:
                         artifact = self.generator.generate(segment_id, segment)
                     return artifact
 
                 artifact = self.scheduler.run_on_gpu(generate)
+                if artifact.media_type == "video/mp4":
+                    artifact.url = f"/media/{Path(artifact.path).name}"
                 self.store.add_video(job_id, artifact)
                 self.store.update_status(job_id, JobStatus.running, progress=index / total)
+            if isinstance(self.generator, WanVideoGenerator) and len(job.videos) > 1:
+                output = assemble_mp4(job.doc_id, list(job.videos), self.generator.output_dir)
+                self.store.add_video(job_id, VideoArtifact(
+                    segment_id=f"{job.doc_id}-combined", path=str(output),
+                    media_type="video/mp4",
+                    duration_seconds=sum(video.duration_seconds for video in job.videos),
+                    url=f"/media/{output.name}",
+                ))
             return self.store.update_status(job_id, JobStatus.completed, progress=1.0)
         except Exception as exc:
+            logger.exception("Job %s failed", job_id)
             return self.store.update_status(
                 job_id,
                 JobStatus.failed,

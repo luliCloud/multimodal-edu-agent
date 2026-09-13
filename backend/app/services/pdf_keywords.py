@@ -92,7 +92,7 @@ def extract_video_scenes(pages: list[str], limit: int = 8) -> list[dict]:
         if page_number == 1 and lines and len(lines[0].split()) <= 8 and not re.search(r"[.!?]$", lines[0]):
             lines = lines[1:]  # title, not a scene
         for sentence in re.split(r"(?<=[.!?])\s+", " ".join(lines)):
-            sentence = sentence.strip(" \"“”")
+            sentence = sentence.strip()
             if len(re.findall(r"[A-Za-z]+", sentence)) >= 5:
                 sentences.append((page_number, sentence))
     if not sentences:

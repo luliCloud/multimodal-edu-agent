@@ -12,8 +12,8 @@ The default generator is a CPU mock, and an optional synthetic CUDA probe is
 available. Four in-process workers accept jobs; a
 single GPU slot serializes video-generation calls. Run one API process for this
 prototype (`uvicorn backend.app.main:app` without `--workers`). The lock does not
-coordinate multiple processes or machines; real model inference and Redis/Celery
-integration remain future work.
+coordinate multiple processes or machines. The optional Wan backend runs real
+model inference; Redis/Celery integration remains future work.
 
 ## Local Setup
 
@@ -48,6 +48,7 @@ GET  /health
 POST /upload
 GET  /status/{job_id}
 GET  /videos/{doc_id}
+GET  /media/{filename}
 POST /pdf/keywords
 POST /pdf/plan
 POST /pdf/jobs
@@ -76,9 +77,10 @@ curl -X POST http://127.0.0.1:8000/pdf/keywords \
 ```
 
 This CPU-only heuristic is a baseline for selecting topics and filters infrastructure
-terms such as GPU, worker, and parallelism. It does not yet create
-generation prompts; scanned PDFs need OCR first. `/pdf/plan` preserves narrative
-order and page references; `/pdf/jobs` submits its scenes as video tasks.
+terms such as GPU, worker, and parallelism. Scanned PDFs need OCR first.
+`/pdf/plan` preserves narrative order, page references, and per-scene keywords;
+`/pdf/jobs` submits those scenes and keywords as video tasks. The Wan backend
+builds a visual prompt from each scene's text and keywords.
 
 To exercise the single-GPU worker with a synthetic CUDA-generated MP4 (this is
 **not** a text-to-video model), install the optional dependencies and run:
@@ -88,13 +90,31 @@ GENERATOR_BACKEND=cuda_probe python -m backend.scripts.run_cuda_pdf_demo test_pd
 ```
 
 The default backend remains `mock`. The CUDA probe confirms GPU assignment,
-CUDA tensor execution, scheduling, and MP4 encoding. Connect an actual video
-model after the PDF scene output is reviewed.
+CUDA tensor execution, scheduling, and MP4 encoding.
+
+For a real text-to-video test, install `.[wan]` and generate one PDF scene with
+Wan2.1 T2V 1.3B. Model weights download to the Hugging Face cache on first use;
+the official Diffusers repository is roughly 29 GB. The defaults use 33 frames
+at 576×320 and 20 inference steps, with CPU model offload for a 16 GB GPU.
+
+```bash
+GENERATOR_BACKEND=wan python -m backend.scripts.run_wan_pdf_demo test_pdfs/The_Little_Seed.pdf --scene 1
+```
+
+Use `/pdf/jobs` with `GENERATOR_BACKEND=wan` to process all scenes, or run
+`GENERATOR_BACKEND=wan WAN_STEPS=12 python -m backend.scripts.run_cuda_pdf_demo test_pdfs/The_Little_Seed.pdf`
+to generate and concatenate the full test PDF locally. This can take
+several minutes for the PDF; the 15-second latency target is not yet met. For a
+smaller smoke test, set `WAN_NUM_FRAMES=17 WAN_STEPS=8 WAN_HEIGHT=256 WAN_WIDTH=448`.
+The demo script also concatenates completed MP4 scenes into one `*-combined.mp4`
+file in `storage/videos`. Wan PDF jobs also add the combined file to their
+`/videos/{doc_id}` result. With the API running, open `/media/<filename>.mp4`
+in a browser to play a generated clip or the combined video.
 
 ## Next Implementation Step
 
-Connect a selected text-to-video model to the single GPU worker, then evaluate
-clip latency and memory use. Keep the PDF plan reviewable before generation.
+Evaluate scene quality and visual consistency, then add narration and audio.
+Keep the PDF plan reviewable before generation.
 
 ## Tests
 

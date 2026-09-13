@@ -14,6 +14,7 @@ class JobStatus(str, Enum):
 class SegmentRequest(BaseModel):
     text: str = Field(..., min_length=1)
     title: str | None = None
+    keywords: list[str] = Field(default_factory=list)
 
 
 class UploadRequest(BaseModel):
@@ -27,6 +28,7 @@ class VideoArtifact(BaseModel):
     media_type: str
     duration_seconds: int
     gpu_id: int | None = None
+    url: str | None = None
 
 
 class JobRecord(BaseModel):

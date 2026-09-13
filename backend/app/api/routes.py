@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Body, HTTPException
+from fastapi.responses import FileResponse
+import re
 
 from backend.app.models.jobs import JobRecord, SegmentRequest, UploadRequest, VideoArtifact
 from backend.app.services.job_store import job_store
 from backend.app.services.pipeline import LocalPipeline
 from backend.app.services.pdf_keywords import extract_pdf_pages, extract_video_keywords, extract_video_scenes
+from backend.app.core.config import get_settings
 
 router = APIRouter()
 
@@ -16,6 +19,9 @@ def _pdf_plan(pdf: bytes) -> dict:
     scenes = extract_video_scenes(pages)
     if not scenes:
         raise HTTPException(status_code=422, detail="PDF has no usable narrative text")
+    for scene in scenes:
+        scene["keywords"] = [item["keyword"] for item in
+                             extract_video_keywords([scene["text"]], limit=5)]
     title = next((line.strip() for line in pages[0].splitlines() if line.strip()), "Untitled PDF")
     return {"title": title, "page_count": len(pages),
             "keywords": extract_video_keywords(pages), "scenes": scenes}
@@ -40,7 +46,8 @@ def pdf_plan(pdf: bytes = Body(..., media_type="application/pdf")) -> dict:
 def pdf_jobs(pdf: bytes = Body(..., media_type="application/pdf")) -> JobRecord:
     plan = _pdf_plan(pdf)
     request = UploadRequest(title=plan["title"], segments=[
-        SegmentRequest(title=f"Scene {scene['index']}", text=scene["text"])
+        SegmentRequest(title=f"Scene {scene['index']}", text=scene["text"],
+                       keywords=scene["keywords"])
         for scene in plan["scenes"]
     ])
     return LocalPipeline().submit(request, run_inline=False)
@@ -67,3 +74,13 @@ def status(job_id: str) -> JobRecord:
 @router.get("/videos/{doc_id}", response_model=list[VideoArtifact])
 def videos(doc_id: str) -> list[VideoArtifact]:
     return job_store.videos_for_doc(doc_id)
+
+
+@router.get("/media/{filename}")
+def media(filename: str) -> FileResponse:
+    if not re.fullmatch(r"[A-Za-z0-9_-]+\.mp4", filename):
+        raise HTTPException(status_code=404, detail="Video not found")
+    path = get_settings().storage_dir / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Video not found")
+    return FileResponse(path, media_type="video/mp4")
