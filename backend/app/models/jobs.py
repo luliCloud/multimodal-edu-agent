@@ -26,6 +26,7 @@ class VideoArtifact(BaseModel):
     path: str
     media_type: str
     duration_seconds: int
+    gpu_id: int | None = None
 
 
 class JobRecord(BaseModel):
@@ -39,4 +40,3 @@ class JobRecord(BaseModel):
     error: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
