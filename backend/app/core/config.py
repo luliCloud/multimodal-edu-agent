@@ -9,6 +9,9 @@ class Settings(BaseModel):
     environment: str = "local"
     storage_dir: Path = Path("storage/videos")
     generator_backend: str = getenv("GENERATOR_BACKEND", "mock")
+    planner_backend: str = getenv(
+        "PLANNER_BACKEND", "qwen" if getenv("GENERATOR_BACKEND", "mock") == "wan" else "extractive"
+    )
     mock_clip_seconds: int = 3
 
 

@@ -15,6 +15,8 @@ class SegmentRequest(BaseModel):
     text: str = Field(..., min_length=1)
     title: str | None = None
     keywords: list[str] = Field(default_factory=list)
+    visual_prompt: str | None = None
+    motion: str | None = None
 
 
 class UploadRequest(BaseModel):

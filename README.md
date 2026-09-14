@@ -79,8 +79,13 @@ curl -X POST http://127.0.0.1:8000/pdf/keywords \
 This CPU-only heuristic is a baseline for selecting topics and filters infrastructure
 terms such as GPU, worker, and parallelism. Scanned PDFs need OCR first.
 `/pdf/plan` preserves narrative order, page references, and per-scene keywords;
-`/pdf/jobs` submits those scenes and keywords as video tasks. The Wan backend
-builds a visual prompt from each scene's text and keywords.
+`/pdf/jobs` submits those scenes and keywords as video tasks. With the Wan
+backend, local Qwen3-4B-Instruct first summarizes the extracted sentences and plans
+short scenes with exact source-sentence IDs, a visual prompt, and visible
+start-to-end motion. This semantic plan is reviewable in `/pdf/plan`. The
+planner runs in a separate GPU process that exits before Wan inference, so the
+two models do not occupy GPU memory together. Set `PLANNER_BACKEND=extractive`
+to use the earlier sentence-grouping baseline.
 
 To exercise the single-GPU worker with a synthetic CUDA-generated MP4 (this is
 **not** a text-to-video model), install the optional dependencies and run:
@@ -92,14 +97,26 @@ GENERATOR_BACKEND=cuda_probe python -m backend.scripts.run_cuda_pdf_demo test_pd
 The default backend remains `mock`. The CUDA probe confirms GPU assignment,
 CUDA tensor execution, scheduling, and MP4 encoding.
 
-For a real text-to-video test, install `.[wan]` and generate one PDF scene with
+For a real text-to-video test, install `.[wan]` and generate selected PDF scenes with
 Wan2.1 T2V 1.3B. Model weights download to the Hugging Face cache on first use;
 the official Diffusers repository is roughly 29 GB. The defaults use 33 frames
 at 576×320 and 20 inference steps, with CPU model offload for a 16 GB GPU.
+The local Qwen planner also downloads its model on first use (roughly 8 GB).
+By default, the Wan backend combines Wan clips with simple CUDA-rendered 2D
+animations for root, stem, leaves, and bee scenes. These controlled scenes make
+growth direction, leaf attachment, and the bee's head direction deterministic,
+but their visual style differs from the Wan clips. Set `WAN_CONTROLLED_MOTION=0`
+to generate every scene with Wan instead.
 
 ```bash
-GENERATOR_BACKEND=wan python -m backend.scripts.run_wan_pdf_demo test_pdfs/The_Little_Seed.pdf --scene 1
+GENERATOR_BACKEND=wan python -m backend.scripts.run_wan_pdf_demo test_pdfs/The_Little_Seed.pdf --scene 2 --scene 7
 ```
+
+The scene numbers refer to the Qwen storyboard. This command saves the summary,
+source evidence, prompts and motion descriptions in
+`storage/plans/The_Little_Seed-storyboard.json`, then generates the selected clips.
+To revise or rerender those scenes without rerunning Qwen, pass
+`--plan-file storage/plans/The_Little_Seed-storyboard.json`.
 
 Use `/pdf/jobs` with `GENERATOR_BACKEND=wan` to process all scenes, or run
 `GENERATOR_BACKEND=wan WAN_STEPS=12 python -m backend.scripts.run_cuda_pdf_demo test_pdfs/The_Little_Seed.pdf`

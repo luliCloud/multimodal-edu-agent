@@ -5,7 +5,8 @@ import re
 from backend.app.models.jobs import JobRecord, SegmentRequest, UploadRequest, VideoArtifact
 from backend.app.services.job_store import job_store
 from backend.app.services.pipeline import LocalPipeline
-from backend.app.services.pdf_keywords import extract_pdf_pages, extract_video_keywords, extract_video_scenes
+from backend.app.services.pdf_keywords import extract_pdf_pages, extract_video_keywords
+from backend.app.services.story_planner import plan_story
 from backend.app.core.config import get_settings
 
 router = APIRouter()
@@ -16,15 +17,16 @@ def _pdf_plan(pdf: bytes) -> dict:
         pages = extract_pdf_pages(pdf)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    scenes = extract_video_scenes(pages)
+    planned = plan_story(pages, get_settings().planner_backend)
+    scenes = planned["scenes"]
     if not scenes:
         raise HTTPException(status_code=422, detail="PDF has no usable narrative text")
     for scene in scenes:
-        scene["keywords"] = [item["keyword"] for item in
-                             extract_video_keywords([scene["text"]], limit=5)]
+        scene.setdefault("keywords", [item["keyword"] for item in
+                                      extract_video_keywords([scene["text"]], limit=5)])
     title = next((line.strip() for line in pages[0].splitlines() if line.strip()), "Untitled PDF")
     return {"title": title, "page_count": len(pages),
-            "keywords": extract_video_keywords(pages), "scenes": scenes}
+            "keywords": extract_video_keywords(pages), **planned}
 
 
 @router.post("/pdf/keywords")
@@ -47,7 +49,8 @@ def pdf_jobs(pdf: bytes = Body(..., media_type="application/pdf")) -> JobRecord:
     plan = _pdf_plan(pdf)
     request = UploadRequest(title=plan["title"], segments=[
         SegmentRequest(title=f"Scene {scene['index']}", text=scene["text"],
-                       keywords=scene["keywords"])
+                       keywords=scene["keywords"], visual_prompt=scene.get("visual_prompt"),
+                       motion=scene.get("motion"))
         for scene in plan["scenes"]
     ])
     return LocalPipeline().submit(request, run_inline=False)
