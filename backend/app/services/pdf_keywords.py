@@ -93,7 +93,10 @@ def extract_video_scenes(pages: list[str], limit: int = 8) -> list[dict]:
             lines = lines[1:]  # title, not a scene
         for sentence in re.split(r"(?<=[.!?])\s+", " ".join(lines)):
             sentence = sentence.strip()
-            if len(re.findall(r"[A-Za-z]+", sentence)) >= 5:
+            # Short sentences often carry the key action ("Mia smiled.") or
+            # reveal ("A rainbow appeared."). Keep them for the planner.
+            words = re.findall(r"[A-Za-z]+", sentence.lower())
+            if len(words) >= 2 and len(set(words)) > 1:
                 sentences.append((page_number, sentence))
     if not sentences:
         return []

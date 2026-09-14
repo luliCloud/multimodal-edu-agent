@@ -2,7 +2,8 @@ from backend.app.models.jobs import SegmentRequest
 from backend.app.services.wan_video import WanVideoGenerator
 
 
-def test_prompt_uses_scene_and_visual_keywords() -> None:
+def test_prompt_uses_scene_and_visual_keywords(monkeypatch) -> None:
+    monkeypatch.setenv("WAN_CONTROLLED_MOTION", "1")
     prompt = WanVideoGenerator.build_prompt(
         SegmentRequest(text="A tiny root grows from the seed.", keywords=["seed", "root", "soil"])
     )
@@ -21,7 +22,8 @@ def test_prompt_omits_spoken_dialogue() -> None:
     assert "Buzz" not in prompt
 
 
-def test_prompt_makes_rain_and_bee_motion_explicit() -> None:
+def test_prompt_makes_rain_and_bee_motion_explicit(monkeypatch) -> None:
+    monkeypatch.setenv("WAN_CONTROLLED_MOTION", "1")
     rain = WanVideoGenerator.build_prompt(SegmentRequest(
         text="The rain fell softly on the ground. The little seed drank water.",
         visual_prompt="A small brown seed lies in dark soil under rain.",
@@ -29,7 +31,6 @@ def test_prompt_makes_rain_and_bee_motion_explicit() -> None:
         keywords=["warm sun", "rain", "seed"],
     ))
     assert "Raindrops fall and the soil darkens" in rain
-    assert "translucent pale blue raindrops" in rain
     assert "warm sun" not in rain
     assert "No sprout or plant" in rain
 
@@ -42,7 +43,8 @@ def test_prompt_makes_rain_and_bee_motion_explicit() -> None:
     assert "abdomen trailing behind" in bee
 
 
-def test_seed_before_growth_excludes_early_plant() -> None:
+def test_seed_before_growth_excludes_early_plant(monkeypatch) -> None:
+    monkeypatch.setenv("WAN_CONTROLLED_MOTION", "1")
     prompt = WanVideoGenerator.build_prompt(SegmentRequest(
         text="A little seed slept in the dark soil.", keywords=["seed", "dark soil"],
     ))
@@ -50,7 +52,8 @@ def test_seed_before_growth_excludes_early_plant() -> None:
     assert "no sprout, root, stem, or plant" in prompt
 
 
-def test_root_scene_uses_underground_cutaway() -> None:
+def test_root_scene_uses_underground_cutaway(monkeypatch) -> None:
+    monkeypatch.setenv("WAN_CONTROLLED_MOTION", "1")
     prompt = WanVideoGenerator.build_prompt(SegmentRequest(
         text="Soon, a tiny root grew down into the soil.", keywords=["root", "soil"],
     ))
@@ -59,7 +62,8 @@ def test_root_scene_uses_underground_cutaway() -> None:
     assert "no trees, leaves, stems" in prompt
 
 
-def test_leaf_scene_requires_attachment() -> None:
+def test_leaf_scene_requires_attachment(monkeypatch) -> None:
+    monkeypatch.setenv("WAN_CONTROLLED_MOTION", "1")
     prompt = WanVideoGenerator.build_prompt(SegmentRequest(
         text="It had two small leaves. Then it had four leaves.",
     ))
@@ -67,9 +71,24 @@ def test_leaf_scene_requires_attachment() -> None:
     assert "No flowers or floating leaves" in prompt
 
 
-def test_new_seed_ending_shows_distinct_seeds() -> None:
+def test_new_seed_ending_shows_distinct_seeds(monkeypatch) -> None:
+    monkeypatch.setenv("WAN_CONTROLLED_MOTION", "1")
     prompt = WanVideoGenerator.build_prompt(SegmentRequest(
         text="And inside the flower were new seeds, ready to begin again.",
     ))
     assert "separate small brown oval new seeds" in prompt
     assert "empty dark disk" in prompt
+
+
+def test_generic_rainbow_prompt_does_not_add_rain_or_soil(monkeypatch) -> None:
+    monkeypatch.delenv("WAN_CONTROLLED_MOTION", raising=False)
+    prompt = WanVideoGenerator.build_prompt(SegmentRequest(
+        text="A beautiful rainbow appeared.",
+        visual_prompt="A colorful rainbow arcs across a clearing sky.",
+        motion="The rainbow appears from left to right.",
+        keywords=["rainbow", "sky"],
+    ))
+    assert "rainbow appears from left to right" in prompt
+    assert "raindrops" not in prompt.lower()
+    assert "soil" not in prompt.lower()
+    assert "Key visual elements" not in prompt

@@ -82,10 +82,17 @@ terms such as GPU, worker, and parallelism. Scanned PDFs need OCR first.
 `/pdf/jobs` submits those scenes and keywords as video tasks. With the Wan
 backend, local Qwen3-4B-Instruct first summarizes the extracted sentences and plans
 short scenes with exact source-sentence IDs, a visual prompt, and visible
-start-to-end motion. This semantic plan is reviewable in `/pdf/plan`. The
+start-to-end motion. The planner assigns every source sentence to an ordered
+scene group before asking Qwen to design that group's shot, so short actions
+and the story ending cannot be silently dropped. This semantic plan is
+reviewable in `/pdf/plan`. The
 planner runs in a separate GPU process that exits before Wan inference, so the
 two models do not occupy GPU memory together. Set `PLANNER_BACKEND=extractive`
-to use the earlier sentence-grouping baseline.
+to use the earlier sentence-grouping baseline. The Qwen planner currently
+supports short stories with up to 32 narrative sentences; split longer PDFs.
+Text extraction currently supports English text-based PDFs, not scanned pages.
+Check the generated visual prompts before an expensive video run: model-written
+details can still go beyond the PDF even when the scene order is grounded.
 
 To exercise the single-GPU worker with a synthetic CUDA-generated MP4 (this is
 **not** a text-to-video model), install the optional dependencies and run:
@@ -102,11 +109,11 @@ Wan2.1 T2V 1.3B. Model weights download to the Hugging Face cache on first use;
 the official Diffusers repository is roughly 29 GB. The defaults use 33 frames
 at 576×320 and 20 inference steps, with CPU model offload for a 16 GB GPU.
 The local Qwen planner also downloads its model on first use (roughly 8 GB).
-By default, the Wan backend combines Wan clips with simple CUDA-rendered 2D
-animations for root, stem, leaves, and bee scenes. These controlled scenes make
-growth direction, leaf attachment, and the bee's head direction deterministic,
-but their visual style differs from the Wan clips. Set `WAN_CONTROLLED_MOTION=0`
-to generate every scene with Wan instead.
+By default, the Wan backend uses Wan for every scene. For the seed-growth
+story, set `WAN_CONTROLLED_MOTION=1` to use simple CUDA-rendered 2D animations
+for root, stem, leaves, and bee scenes. Those scenes make growth direction,
+leaf attachment, and the bee's head direction deterministic, but are specific
+to that story and look different from the Wan clips.
 
 ```bash
 GENERATOR_BACKEND=wan python -m backend.scripts.run_wan_pdf_demo test_pdfs/The_Little_Seed.pdf --scene 2 --scene 7
