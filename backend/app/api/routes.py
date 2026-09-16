@@ -7,6 +7,7 @@ from backend.app.services.job_store import job_store
 from backend.app.services.pipeline import LocalPipeline
 from backend.app.services.pdf_keywords import extract_pdf_pages, extract_video_keywords
 from backend.app.services.story_planner import plan_story
+from backend.app.services.storyboard_schema import ScopeExceededError, StoryPlanningError
 from backend.app.core.config import get_settings
 
 router = APIRouter()
@@ -17,7 +18,12 @@ def _pdf_plan(pdf: bytes) -> dict:
         pages = extract_pdf_pages(pdf)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    planned = plan_story(pages, get_settings().planner_backend)
+    try:
+        planned = plan_story(pages, get_settings().planner_backend)
+    except ScopeExceededError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except StoryPlanningError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     scenes = planned["scenes"]
     if not scenes:
         raise HTTPException(status_code=422, detail="PDF has no usable narrative text")
@@ -50,7 +56,8 @@ def pdf_jobs(pdf: bytes = Body(..., media_type="application/pdf")) -> JobRecord:
     request = UploadRequest(title=plan["title"], segments=[
         SegmentRequest(title=f"Scene {scene['index']}", text=scene["text"],
                        keywords=scene["keywords"], visual_prompt=scene.get("visual_prompt"),
-                       motion=scene.get("motion"))
+                       motion=scene.get("motion"), narration=scene.get("narration"),
+                       narration_seconds=scene.get("narration_seconds"))
         for scene in plan["scenes"]
     ])
     return LocalPipeline().submit(request, run_inline=False)

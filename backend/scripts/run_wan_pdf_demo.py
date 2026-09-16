@@ -38,6 +38,8 @@ def main() -> None:
         keywords=scenes[number - 1]["keywords"],
         visual_prompt=scenes[number - 1].get("visual_prompt"),
         motion=scenes[number - 1].get("motion"),
+        narration=scenes[number - 1].get("narration"),
+        narration_seconds=scenes[number - 1].get("narration_seconds"),
     ) for number in selected]
     for number, segment in zip(selected, segments):
         print(f"scene {number} prompt:", WanVideoGenerator.build_prompt(segment), flush=True)
