@@ -1,7 +1,11 @@
 import unittest
 from pathlib import Path
 
-from backend.app.services.pdf_keywords import extract_pdf_pages, extract_video_keywords
+from backend.app.services.pdf_keywords import (
+    _pages_from_pdfplumber,
+    extract_pdf_pages,
+    extract_video_keywords,
+)
 
 
 class PdfKeywordsTest(unittest.TestCase):
@@ -28,6 +32,18 @@ class PdfKeywordsTest(unittest.TestCase):
     def test_rejects_non_pdf(self) -> None:
         with self.assertRaisesRegex(ValueError, "not a PDF"):
             extract_pdf_pages(b"hello")
+
+    def test_pdfplumber_fallback_matches_expected_text(self) -> None:
+        """Runs even where pdftotext exists, so the fallback cannot silently rot."""
+        path = Path(__file__).parents[1] / "test_pdfs/The_Little_Seed.pdf"
+        pages = [page.strip() for page in _pages_from_pdfplumber(path.read_bytes())]
+        text = " ".join(pages)
+        self.assertIn("The rain fell softly on the ground.", text)
+        self.assertIn("A bee flew over to visit.", text)
+
+    def test_pdfplumber_fallback_rejects_corrupt_pdf(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Could not extract text"):
+            _pages_from_pdfplumber(b"%PDF-1.4 not really a pdf")
 
 
 if __name__ == "__main__":

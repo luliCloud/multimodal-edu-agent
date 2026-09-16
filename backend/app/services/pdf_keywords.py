@@ -1,5 +1,6 @@
 """CPU-only PDF text and candidate video-topic extraction."""
 
+import io
 import re
 import shutil
 import subprocess
@@ -24,22 +25,39 @@ INFRASTRUCTURE_TERMS = {"parallelism", "gpu", "cuda", "worker", "workers", "sche
                         "interfaces", "tests", "implemented", "engine", "task"}
 
 
-def extract_pdf_pages(pdf: bytes) -> list[str]:
-    if len(pdf) > 10 * 1024 * 1024:
-        raise ValueError("PDF exceeds 10 MB limit")
-    if not pdf.startswith(b"%PDF-"):
-        raise ValueError("Input is not a PDF")
-    executable = shutil.which("pdftotext")
-    if executable is None:
-        raise RuntimeError("pdftotext (poppler-utils) is required")
+def _pages_from_pdftotext(pdf: bytes, executable: str) -> list[str]:
     result = subprocess.run(
         [executable, "-layout", "-", "-"], input=pdf, capture_output=True,
         timeout=30, check=False,
     )
     if result.returncode:
         raise ValueError("Could not extract text from PDF")
-    pages = [page.strip() for page in result.stdout.decode("utf-8", errors="replace").split("\f")]
-    pages = [page for page in pages if page]
+    return result.stdout.decode("utf-8", errors="replace").split("\f")
+
+
+def _pages_from_pdfplumber(pdf: bytes) -> list[str]:
+    try:
+        import pdfplumber
+    except ImportError as exc:
+        raise RuntimeError(
+            "Install poppler-utils (pdftotext) or the pdfplumber package to read PDFs"
+        ) from exc
+    try:
+        with pdfplumber.open(io.BytesIO(pdf)) as document:
+            return [page.extract_text() or "" for page in document.pages]
+    except Exception as exc:
+        raise ValueError("Could not extract text from PDF") from exc
+
+
+def extract_pdf_pages(pdf: bytes) -> list[str]:
+    if len(pdf) > 10 * 1024 * 1024:
+        raise ValueError("PDF exceeds 10 MB limit")
+    if not pdf.startswith(b"%PDF-"):
+        raise ValueError("Input is not a PDF")
+    executable = shutil.which("pdftotext")
+    raw = (_pages_from_pdftotext(pdf, executable) if executable
+           else _pages_from_pdfplumber(pdf))
+    pages = [page for page in (page.strip() for page in raw) if page]
     if not pages or sum(len(page) for page in pages) < 30:
         raise ValueError("PDF has no extractable text; scanned pages need OCR")
     return pages
