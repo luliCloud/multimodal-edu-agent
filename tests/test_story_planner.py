@@ -1,11 +1,13 @@
 import pytest
 
 import backend.app.services.story_planner as story_planner
+from backend.app.services.storyboard_schema import StoryPlanningError
 
 
 def _draft(count: int) -> dict:
     return {"summary": "The story changes from beginning to end.", "scenes": [
-        {"visual_prompt": f"Scene {i}.", "motion": "Something visibly changes."}
+        {"visual_prompt": f"Scene {i}.", "motion": "Something visibly changes.",
+         "narration": "The little seed waits quietly beneath the dark garden soil."}
         for i in range(count)]}
 
 
@@ -46,3 +48,27 @@ def test_qwen_plan_rejects_story_too_long() -> None:
     sentences = [{"id": i, "text": f"Event {i}."} for i in range(1, 34)]
     with pytest.raises(ValueError, match="up to 32"):
         story_planner.scene_groups(sentences)
+
+
+def test_qwen_plan_carries_narration_and_its_estimated_length(monkeypatch) -> None:
+    monkeypatch.setattr(story_planner.scheduler, "run_on_gpu", lambda callback: _draft(3))
+    plan = story_planner.plan_story(["A seed slept in soil. Rain fell on the seed. "
+                                     "A root grew down into soil."], "qwen")
+    assert plan["scenes"][0]["narration"].startswith("The little seed waits")
+    assert plan["scenes"][0]["narration_seconds"] == 4.0
+
+
+def test_qwen_plan_rejects_a_scene_with_no_narration(monkeypatch) -> None:
+    draft = _draft(3)
+    del draft["scenes"][1]["narration"]
+    monkeypatch.setattr(story_planner.scheduler, "run_on_gpu", lambda callback: draft)
+    with pytest.raises(StoryPlanningError, match="narration"):
+        story_planner.plan_story(["A seed slept in soil. Rain fell on the seed. "
+                                  "A root grew down into soil."], "qwen")
+
+
+def test_extractive_plan_narrates_the_source_text() -> None:
+    plan = story_planner.plan_story(["A seed slept in soil. Rain fell on the seed."])
+    scene = plan["scenes"][0]
+    assert scene["narration"] == scene["text"]
+    assert scene["narration_seconds"] >= 3.0
