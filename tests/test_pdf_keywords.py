@@ -29,6 +29,14 @@ class PdfKeywordsTest(unittest.TestCase):
         self.assertIn("flower", " ".join(words))
         self.assertNotIn("drip drip", words)
 
+    def test_rain_story_drops_pronouns_and_keeps_visual_subjects(self) -> None:
+        path = Path(__file__).parents[1] / "test_pdfs/After the Rain.pdf"
+        words = {item["keyword"] for item in
+                 extract_video_keywords(extract_pdf_pages(path.read_bytes()), limit=12)}
+        self.assertFalse(words.intersection({"her", "she", "they"}))
+        self.assertTrue({"mia", "rain", "rainbow", "puddles"}.issubset(words))
+        self.assertTrue(any(term in words for term in {"yellow raincoat", "raincoat"}))
+
     def test_rejects_non_pdf(self) -> None:
         with self.assertRaisesRegex(ValueError, "not a PDF"):
             extract_pdf_pages(b"hello")

@@ -23,7 +23,8 @@ def main() -> None:
     if get_settings().generator_backend != "wan":
         parser.error("Set GENERATOR_BACKEND=wan")
     planned = (json.loads(args.plan_file.read_text(encoding="utf-8")) if args.plan_file else
-               plan_story(extract_pdf_pages(args.pdf.read_bytes()), get_settings().planner_backend))
+               plan_story(extract_pdf_pages(args.pdf.read_bytes()),
+                          get_settings().planner_backend, title=args.pdf.stem))
     scenes = planned["scenes"]
     plan_path = Path("storage/plans") / f"{args.pdf.stem}-storyboard.json"
     plan_path.parent.mkdir(parents=True, exist_ok=True)

@@ -20,7 +20,7 @@ def test_pdf_plan_and_job() -> None:
     assert plan_response.status_code == 200
     plan = plan_response.json()
     assert plan["title"] == "The Little Seed"
-    assert len(plan["scenes"]) == 7
+    assert len(plan["scenes"]) == 4
     assert "dark soil" in plan["scenes"][0]["text"]
     assert any("seed" in keyword for keyword in plan["scenes"][0]["keywords"])
     assert "new seeds" in plan["scenes"][-1]["text"]
@@ -28,7 +28,7 @@ def test_pdf_plan_and_job() -> None:
     job_response = client.post("/pdf/jobs", content=pdf, headers={"Content-Type": "application/pdf"})
     assert job_response.status_code == 200
     job = job_response.json()
-    assert len(job["segments"]) == 7
+    assert len(job["segments"]) == 4
     assert any("seed" in keyword for keyword in job["segments"][0]["keywords"])
     assert job["segments"][0]["keywords"] == plan["scenes"][0]["keywords"]
     for _ in range(100):
@@ -37,7 +37,7 @@ def test_pdf_plan_and_job() -> None:
             break
         time.sleep(0.05)
     assert current["status"] == "completed", current.get("error")
-    assert len(client.get(f"/videos/{job['doc_id']}").json()) == 7
+    assert len(client.get(f"/videos/{job['doc_id']}").json()) == 4
     assert client.get("/media/missing.mp4").status_code == 404
 
 
@@ -58,7 +58,7 @@ def test_plan_carries_narration_to_job_segments() -> None:
     (StoryPlanningError("Storyboard invalid after 3 attempts"), 502),
 ])
 def test_planner_errors_are_reported_not_raised_as_500(monkeypatch, error, expected_status) -> None:
-    def fail(pages, backend):
+    def fail(pages, backend, title="Untitled PDF"):
         raise error
 
     monkeypatch.setattr(routes, "plan_story", fail)

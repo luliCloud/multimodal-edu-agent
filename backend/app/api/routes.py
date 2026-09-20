@@ -18,8 +18,9 @@ def _pdf_plan(pdf: bytes) -> dict:
         pages = extract_pdf_pages(pdf)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    title = next((line.strip() for line in pages[0].splitlines() if line.strip()), "Untitled PDF")
     try:
-        planned = plan_story(pages, get_settings().planner_backend)
+        planned = plan_story(pages, get_settings().planner_backend, title=title)
     except ScopeExceededError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except StoryPlanningError as exc:
@@ -30,7 +31,6 @@ def _pdf_plan(pdf: bytes) -> dict:
     for scene in scenes:
         scene.setdefault("keywords", [item["keyword"] for item in
                                       extract_video_keywords([scene["text"]], limit=5)])
-    title = next((line.strip() for line in pages[0].splitlines() if line.strip()), "Untitled PDF")
     return {"title": title, "page_count": len(pages),
             "keywords": extract_video_keywords(pages), **planned}
 

@@ -18,11 +18,18 @@ STOPWORDS.update({"little", "small", "tiny", "one", "two", "four", "day", "morni
                   "soon", "then", "every", "again", "anymore", "said", "was", "had",
                   "gave", "came", "grew", "grown", "fell", "flew", "pushed", "drank",
                   "slept", "appeared", "ready", "into", "toward", "down", "over",
-                  "inside", "out", "up", "softly", "quiet", "drip", "buzz", "hello"})
+                  "inside", "out", "up", "softly", "quiet", "drip", "buzz", "hello",
+                  "i", "you", "he", "she", "we", "they", "him", "her", "them", "his",
+                  "hers", "its", "ours", "theirs", "look", "looked", "saw", "see",
+                  "smile", "smiled", "tap", "after", "end", "began", "become", "moved",
+                  "put", "went", "slowly", "away", "jumped", "covered", "fall", "stopped",
+                  "beautiful", "bright", "colorful", "outside"})
 INFRASTRUCTURE_TERMS = {"parallelism", "gpu", "cuda", "worker", "workers", "scheduler",
                         "scheduling", "queue", "queues", "inference", "latency", "throughput",
                         "gpus", "redis", "celery", "orchestration", "script", "segments",
                         "interfaces", "tests", "implemented", "engine", "task"}
+COLOR_TERMS = {"red", "orange", "yellow", "green", "blue", "purple", "pink", "brown",
+               "black", "white", "gray", "grey"}
 
 
 def _pages_from_pdftotext(pdf: bytes, executable: str) -> list[str]:
@@ -73,7 +80,9 @@ def extract_video_keywords(pages: list[str], limit: int = 10) -> list[dict]:
         for sentence in re.split(r"[.;:!?\n•]+", normalized):
             words = re.findall(r"[a-z][a-z0-9-]*", sentence)
             word_counts.update(words)
-            for size in (1, 2, 3):
+            # Unigrams and compact noun-like pairs are easier for an image/video
+            # generator to use than accidental three-word spans from prose.
+            for size in (1, 2):
                 for i in range(len(words) - size + 1):
                     phrase = words[i:i + size]
                     if any(word in STOPWORDS or len(word) < 3 for word in (phrase[0], phrase[-1])):
@@ -81,6 +90,10 @@ def extract_video_keywords(pages: list[str], limit: int = 10) -> list[dict]:
                     if sum(word in STOPWORDS for word in phrase):
                         continue
                     if any(word in INFRASTRUCTURE_TERMS or "gpu" in word for word in phrase):
+                        continue
+                    if len(phrase) == 1 and phrase[0] in COLOR_TERMS:
+                        continue
+                    if len(phrase) > 1 and all(word in COLOR_TERMS for word in phrase):
                         continue
                     key = " ".join(phrase)
                     counts[key] += 1
