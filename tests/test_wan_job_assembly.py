@@ -1,6 +1,6 @@
 import subprocess
 
-import imageio_ffmpeg
+import pytest
 
 from backend.app.core.config import Settings
 from backend.app.models.jobs import SegmentRequest, UploadRequest, VideoArtifact
@@ -12,6 +12,7 @@ import backend.app.services.pipeline as pipeline_module
 
 
 def test_wan_job_exposes_combined_video(tmp_path, monkeypatch) -> None:
+    imageio_ffmpeg = pytest.importorskip("imageio_ffmpeg", reason="needs the cuda or wan extra")
     clips = []
     for color in ("red", "green"):
         path = tmp_path / f"{color}.mp4"

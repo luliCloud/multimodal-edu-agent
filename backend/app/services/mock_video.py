@@ -1,6 +1,7 @@
 import hashlib
 import shutil
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 
 from backend.app.models.jobs import SegmentRequest, VideoArtifact
@@ -9,6 +10,14 @@ from backend.app.models.jobs import SegmentRequest, VideoArtifact
 def _color_for_text(text: str) -> str:
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return f"#{digest[:6]}"
+
+
+@lru_cache(maxsize=4)
+def _supports_drawtext(ffmpeg: str) -> bool:
+    """Homebrew's default ffmpeg ships without libfreetype, so drawtext is absent."""
+    result = subprocess.run([ffmpeg, "-hide_banner", "-filters"],
+                            capture_output=True, text=True, check=False)
+    return " drawtext " in result.stdout
 
 
 class MockVideoGenerator:
@@ -44,13 +53,13 @@ class MockVideoGenerator:
         title = (segment.title or "EduTok Segment").replace(":", " -")
         color = _color_for_text(segment.text)
         text = segment.text[:90].replace(":", " -").replace("'", "")
-        vf = (
-            f"color=c={color}:s=640x360:d={self.duration_seconds},"
-            "format=yuv420p,"
-            f"drawtext=text='{title}':x=32:y=36:fontsize=28:fontcolor=white,"
-            f"drawtext=text='{text}':x=32:y=170:fontsize=22:fontcolor=white"
-        )
-        subprocess.run(
+        vf = f"color=c={color}:s=640x360:d={self.duration_seconds},format=yuv420p"
+        if _supports_drawtext(ffmpeg):
+            vf += (
+                f",drawtext=text='{title}':x=32:y=36:fontsize=28:fontcolor=white"
+                f",drawtext=text='{text}':x=32:y=170:fontsize=22:fontcolor=white"
+            )
+        result = subprocess.run(
             [
                 ffmpeg,
                 "-y",
@@ -64,9 +73,12 @@ class MockVideoGenerator:
                 "+faststart",
                 str(path),
             ],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
         )
+        if result.returncode:
+            lines = result.stderr.decode("utf-8", errors="replace").strip().splitlines()
+            raise RuntimeError(f"ffmpeg could not render {segment_id}: "
+                               f"{lines[-1] if lines else 'unknown error'}")
         return path
 

@@ -23,7 +23,8 @@ def main() -> None:
     if get_settings().generator_backend != "wan":
         parser.error("Set GENERATOR_BACKEND=wan")
     planned = (json.loads(args.plan_file.read_text(encoding="utf-8")) if args.plan_file else
-               plan_story(extract_pdf_pages(args.pdf.read_bytes()), get_settings().planner_backend))
+               plan_story(extract_pdf_pages(args.pdf.read_bytes()),
+                          get_settings().planner_backend, title=args.pdf.stem))
     scenes = planned["scenes"]
     plan_path = Path("storage/plans") / f"{args.pdf.stem}-storyboard.json"
     plan_path.parent.mkdir(parents=True, exist_ok=True)
@@ -38,6 +39,8 @@ def main() -> None:
         keywords=scenes[number - 1]["keywords"],
         visual_prompt=scenes[number - 1].get("visual_prompt"),
         motion=scenes[number - 1].get("motion"),
+        narration=scenes[number - 1].get("narration"),
+        narration_seconds=scenes[number - 1].get("narration_seconds"),
     ) for number in selected]
     for number, segment in zip(selected, segments):
         print(f"scene {number} prompt:", WanVideoGenerator.build_prompt(segment), flush=True)

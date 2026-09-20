@@ -1,5 +1,6 @@
 """CPU-only PDF text and candidate video-topic extraction."""
 
+import io
 import re
 import shutil
 import subprocess
@@ -17,11 +18,42 @@ STOPWORDS.update({"little", "small", "tiny", "one", "two", "four", "day", "morni
                   "soon", "then", "every", "again", "anymore", "said", "was", "had",
                   "gave", "came", "grew", "grown", "fell", "flew", "pushed", "drank",
                   "slept", "appeared", "ready", "into", "toward", "down", "over",
-                  "inside", "out", "up", "softly", "quiet", "drip", "buzz", "hello"})
+                  "inside", "out", "up", "softly", "quiet", "drip", "buzz", "hello",
+                  "i", "you", "he", "she", "we", "they", "him", "her", "them", "his",
+                  "hers", "its", "ours", "theirs", "look", "looked", "saw", "see",
+                  "smile", "smiled", "tap", "after", "end", "began", "become", "moved",
+                  "put", "went", "slowly", "away", "jumped", "covered", "fall", "stopped",
+                  "beautiful", "bright", "colorful", "outside"})
 INFRASTRUCTURE_TERMS = {"parallelism", "gpu", "cuda", "worker", "workers", "scheduler",
                         "scheduling", "queue", "queues", "inference", "latency", "throughput",
                         "gpus", "redis", "celery", "orchestration", "script", "segments",
                         "interfaces", "tests", "implemented", "engine", "task"}
+COLOR_TERMS = {"red", "orange", "yellow", "green", "blue", "purple", "pink", "brown",
+               "black", "white", "gray", "grey"}
+
+
+def _pages_from_pdftotext(pdf: bytes, executable: str) -> list[str]:
+    result = subprocess.run(
+        [executable, "-layout", "-", "-"], input=pdf, capture_output=True,
+        timeout=30, check=False,
+    )
+    if result.returncode:
+        raise ValueError("Could not extract text from PDF")
+    return result.stdout.decode("utf-8", errors="replace").split("\f")
+
+
+def _pages_from_pdfplumber(pdf: bytes) -> list[str]:
+    try:
+        import pdfplumber
+    except ImportError as exc:
+        raise RuntimeError(
+            "Install poppler-utils (pdftotext) or the pdfplumber package to read PDFs"
+        ) from exc
+    try:
+        with pdfplumber.open(io.BytesIO(pdf)) as document:
+            return [page.extract_text() or "" for page in document.pages]
+    except Exception as exc:
+        raise ValueError("Could not extract text from PDF") from exc
 
 
 def extract_pdf_pages(pdf: bytes) -> list[str]:
@@ -30,16 +62,9 @@ def extract_pdf_pages(pdf: bytes) -> list[str]:
     if not pdf.startswith(b"%PDF-"):
         raise ValueError("Input is not a PDF")
     executable = shutil.which("pdftotext")
-    if executable is None:
-        raise RuntimeError("pdftotext (poppler-utils) is required")
-    result = subprocess.run(
-        [executable, "-layout", "-", "-"], input=pdf, capture_output=True,
-        timeout=30, check=False,
-    )
-    if result.returncode:
-        raise ValueError("Could not extract text from PDF")
-    pages = [page.strip() for page in result.stdout.decode("utf-8", errors="replace").split("\f")]
-    pages = [page for page in pages if page]
+    raw = (_pages_from_pdftotext(pdf, executable) if executable
+           else _pages_from_pdfplumber(pdf))
+    pages = [page for page in (page.strip() for page in raw) if page]
     if not pages or sum(len(page) for page in pages) < 30:
         raise ValueError("PDF has no extractable text; scanned pages need OCR")
     return pages
@@ -55,7 +80,9 @@ def extract_video_keywords(pages: list[str], limit: int = 10) -> list[dict]:
         for sentence in re.split(r"[.;:!?\n•]+", normalized):
             words = re.findall(r"[a-z][a-z0-9-]*", sentence)
             word_counts.update(words)
-            for size in (1, 2, 3):
+            # Unigrams and compact noun-like pairs are easier for an image/video
+            # generator to use than accidental three-word spans from prose.
+            for size in (1, 2):
                 for i in range(len(words) - size + 1):
                     phrase = words[i:i + size]
                     if any(word in STOPWORDS or len(word) < 3 for word in (phrase[0], phrase[-1])):
@@ -63,6 +90,10 @@ def extract_video_keywords(pages: list[str], limit: int = 10) -> list[dict]:
                     if sum(word in STOPWORDS for word in phrase):
                         continue
                     if any(word in INFRASTRUCTURE_TERMS or "gpu" in word for word in phrase):
+                        continue
+                    if len(phrase) == 1 and phrase[0] in COLOR_TERMS:
+                        continue
+                    if len(phrase) > 1 and all(word in COLOR_TERMS for word in phrase):
                         continue
                     key = " ".join(phrase)
                     counts[key] += 1

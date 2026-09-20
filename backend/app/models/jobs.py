@@ -17,6 +17,9 @@ class SegmentRequest(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     visual_prompt: str | None = None
     motion: str | None = None
+    narration: str | None = None
+    # Estimated read-aloud length, for the narration/audio stage to match against.
+    narration_seconds: float | None = None
 
 
 class UploadRequest(BaseModel):

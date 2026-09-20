@@ -23,6 +23,9 @@ source .venv/bin/activate
 pip install -e ".[dev,cuda]"
 ```
 
+`.[dev]` on its own is enough to run the API, the mock backend and the test
+suite; the `cuda` and `wan` extras are only needed for GPU generation.
+
 Run a local demo that generates short mock `.mp4` files with `ffmpeg`:
 
 ```bash
@@ -67,8 +70,9 @@ Example upload request:
 ```
 
 The first PDF ingestion step extracts candidate video topics with page references. It
-requires `pdftotext` from poppler-utils and accepts a text-based PDF as the raw request
-body (up to 10 MB):
+reads text with `pdftotext` from poppler-utils when that binary is installed and falls
+back to the bundled `pdfplumber` otherwise, so no system package is required. It accepts
+a text-based PDF as the raw request body (up to 10 MB):
 
 ```bash
 curl -X POST http://127.0.0.1:8000/pdf/keywords \
@@ -76,23 +80,44 @@ curl -X POST http://127.0.0.1:8000/pdf/keywords \
   --data-binary @test_pdfs/The_Little_Seed.pdf
 ```
 
-This CPU-only heuristic is a baseline for selecting topics and filters infrastructure
-terms such as GPU, worker, and parallelism. Scanned PDFs need OCR first.
+This CPU-only heuristic is a baseline for selecting topics. It filters infrastructure
+terms, pronouns, standalone colors and accidental prose spans while retaining page
+evidence. Scanned PDFs need OCR first.
 `/pdf/plan` preserves narrative order, page references, and per-scene keywords;
 `/pdf/jobs` submits those scenes and keywords as video tasks. With the Wan
 backend, local Qwen3-4B-Instruct first summarizes the extracted sentences and plans
-short scenes with exact source-sentence IDs, a visual prompt, and visible
-start-to-end motion. The planner assigns every source sentence to an ordered
-scene group before asking Qwen to design that group's shot, so short actions
-and the story ending cannot be silently dropped. This semantic plan is
-reviewable in `/pdf/plan`. The
+exactly four scenes for a 15-second short. Every plan separates global character,
+outfit, lifecycle-state and style definitions from per-scene action, weather, camera,
+motion and narration. Each scene retains exact source-sentence IDs and page evidence.
+The planner assigns every source sentence to an ordered group before asking Qwen to
+design that group's shot, so short actions and the ending cannot be silently dropped.
+This semantic plan is reviewable in `/pdf/plan`. The
 planner runs in a separate GPU process that exits before Wan inference, so the
 two models do not occupy GPU memory together. Set `PLANNER_BACKEND=extractive`
 to use the earlier sentence-grouping baseline. The Qwen planner currently
-supports short stories with up to 32 narrative sentences; split longer PDFs.
-Text extraction currently supports English text-based PDFs, not scanned pages.
-Check the generated visual prompts before an expensive video run: model-written
-details can still go beyond the PDF even when the scene order is grounded.
+supports short stories with up to 32 narrative sentences; longer PDFs are
+rejected with 422, and a planner that cannot produce a usable storyboard
+returns 502. Text extraction currently supports English text-based PDFs, not
+scanned pages. Check the generated visual prompts before an expensive video
+run: model-written details can still go beyond the PDF even when the scene
+order is grounded.
+
+Every scene is checked against the Pydantic contract in
+`backend/app/models/shorts.py`: the plan has exactly four ordered scenes, full source
+coverage, valid global `outfit_id` and `state_id` references, and 6-9 narration words
+per scene with no more than 36 words total. Action, narration and summary fields must
+contain multiple source anchors from their assigned groups. Botanical stories cannot
+silently become human characters. Explicit clothing changes are assigned deterministic
+before/after outfits, and lifecycle stories must use multiple global character states.
+When generation fails a check,
+the worker re-prompts the model with the specific error while it is still
+loaded, up to `PLANNER_MAX_ATTEMPTS` times (default 3), rather than losing
+the run and its model load. Each scene also carries `narration` and a
+`narration_seconds` estimate at roughly 150 words per minute, which is the
+script input the audio stage needs. `visual_prompt` is ready for the current text-to-video
+backend, while `keyframe_prompt` adds the character-reference instruction needed by the
+planned image-to-video path. The extractive baseline fills the shared source, keyword and
+narration fields without loading Qwen.
 
 To exercise the single-GPU worker with a synthetic CUDA-generated MP4 (this is
 **not** a text-to-video model), install the optional dependencies and run:
@@ -116,7 +141,7 @@ leaf attachment, and the bee's head direction deterministic, but are specific
 to that story and look different from the Wan clips.
 
 ```bash
-GENERATOR_BACKEND=wan python -m backend.scripts.run_wan_pdf_demo test_pdfs/The_Little_Seed.pdf --scene 2 --scene 7
+GENERATOR_BACKEND=wan python -m backend.scripts.run_wan_pdf_demo test_pdfs/The_Little_Seed.pdf --scene 2 --scene 4
 ```
 
 The scene numbers refer to the Qwen storyboard. This command saves the summary,
@@ -137,11 +162,18 @@ in a browser to play a generated clip or the combined video.
 
 ## Next Implementation Step
 
-Evaluate scene quality and visual consistency, then add narration and audio.
-Keep the PDF plan reviewable before generation.
+Generate the single character/state reference and four consistent keyframes, then run
+2-4 second image-to-video animation for each keyframe. Synthesize audio from `narration`
+and `narration_seconds`, add captions and transitions, and assemble the 15-second result.
+Keep the PDF plan reviewable before expensive image or video generation.
 
 ## Tests
 
 ```bash
 pytest
 ```
+
+The suite runs without a GPU, poppler or the optional extras; the Wan
+assembly test skips itself when `imageio-ffmpeg` is absent. The four-scene planner's
+retry, grounding, duration, state and outfit contracts are covered with a stubbed
+generator; the model path itself still needs a CUDA box to exercise end to end.
