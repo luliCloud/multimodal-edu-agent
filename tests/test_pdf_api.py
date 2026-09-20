@@ -37,7 +37,9 @@ def test_pdf_plan_and_job() -> None:
             break
         time.sleep(0.05)
     assert current["status"] == "completed", current.get("error")
-    assert len(client.get(f"/videos/{job['doc_id']}").json()) == 4
+    videos = client.get(f"/videos/{job['doc_id']}").json()
+    assert len(videos) == 5
+    assert videos[-1]["segment_id"].endswith("-combined")
     assert client.get("/media/missing.mp4").status_code == 404
 
 
@@ -51,6 +53,67 @@ def test_plan_carries_narration_to_job_segments() -> None:
     job = client.post("/pdf/jobs", content=pdf,
                       headers={"Content-Type": "application/pdf"}).json()
     assert job["segments"][0]["narration"] == scene["narration"]
+
+
+def _reviewed_script() -> dict:
+    source = [
+        {"id": 1, "page": 1, "text": "Mia watches the rain."},
+        {"id": 2, "page": 1, "text": "Mia jumps into a puddle."},
+        {"id": 3, "page": 1, "text": "The clouds move away."},
+        {"id": 4, "page": 1, "text": "A rainbow appears."},
+    ]
+    actions = ["Mia watches rain", "Mia jumps into a puddle",
+               "Clouds move away", "A rainbow appears"]
+    narrations = ["Mia watches gentle rain through the window.",
+                  "Mia happily jumps into a shiny puddle.",
+                  "The dark clouds slowly move far away.",
+                  "A colorful rainbow appears across the sky."]
+    return {
+        "title": "Reviewed Rain Script",
+        "summary": "Mia watches rain, jumps in a puddle, and sees a rainbow.",
+        "character": {
+            "name": "Mia", "kind": "human child", "visual_identity": "young child",
+            "clothes": "yellow raincoat", "outfits": {"default": "yellow raincoat"},
+            "states": {"default": "young child"},
+        },
+        "style": {},
+        "source_sentences": source,
+        "duration_seconds": 15,
+        "scenes": [{
+            "scene": index,
+            "source_sentence_ids": [index],
+            "text": source[index - 1]["text"],
+            "pages": [1],
+            "keywords": ["rain" if index < 4 else "rainbow"],
+            "action": actions[index - 1],
+            "location": "sidewalk",
+            "weather": "rainy" if index < 3 else "clearing",
+            "camera": "medium shot",
+            "motion": actions[index - 1],
+            "narration": narrations[index - 1],
+            "narration_seconds": 3.0,
+            "outfit_id": "default",
+            "state_id": "default",
+            "visual_prompt": actions[index - 1],
+        } for index in range(1, 5)],
+    }
+
+
+def test_reviewed_script_can_start_video_without_replanning() -> None:
+    client = TestClient(app)
+    response = client.post("/scripts/jobs", json=_reviewed_script())
+    assert response.status_code == 200
+    job = response.json()
+    assert len(job["segments"]) == 4
+    for _ in range(100):
+        current = client.get(f"/status/{job['job_id']}").json()
+        if current["status"] in ("completed", "failed"):
+            break
+        time.sleep(0.05)
+    assert current["status"] == "completed", current.get("error")
+    videos = client.get(f"/videos/{job['doc_id']}").json()
+    assert len(videos) == 5
+    assert videos[-1]["segment_id"].endswith("-combined")
 
 
 @pytest.mark.parametrize("error, expected_status", [

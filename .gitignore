@@ -9,3 +9,4 @@ storage/videos/*
 !storage/videos/.gitkeep
 storage/plans/*
 storage/shorts/*
+storage/demo/*

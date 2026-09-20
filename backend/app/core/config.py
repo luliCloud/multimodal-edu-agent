@@ -7,7 +7,7 @@ from pydantic import BaseModel
 class Settings(BaseModel):
     app_name: str = "Multimodal Edu Agent"
     environment: str = "local"
-    storage_dir: Path = Path("storage/videos")
+    storage_dir: Path = Path(getenv("STORAGE_DIR", "storage/videos"))
     generator_backend: str = getenv("GENERATOR_BACKEND", "mock")
     planner_backend: str = getenv(
         "PLANNER_BACKEND", "qwen" if getenv("GENERATOR_BACKEND", "mock") == "wan" else "extractive"

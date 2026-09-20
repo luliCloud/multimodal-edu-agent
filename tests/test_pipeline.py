@@ -19,7 +19,8 @@ class LocalPipelineTest(unittest.TestCase):
 
         self.assertEqual(job.status, "completed")
         self.assertEqual(job.progress, 1.0)
-        self.assertEqual(len(job.videos), 2)
+        self.assertEqual(len(job.videos), 3)
+        self.assertTrue(job.videos[-1].segment_id.endswith("-combined"))
         for artifact in job.videos:
             self.assertTrue(Path(artifact.path).exists())
 

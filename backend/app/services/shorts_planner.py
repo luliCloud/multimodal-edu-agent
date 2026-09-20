@@ -27,6 +27,7 @@ from backend.app.services.storyboard_schema import (
 
 MAX_SOURCE_SENTENCES = 32
 REPO_ROOT = Path(__file__).resolve().parents[3]
+STABLE_DEFAULT_STATE = "same physical identity throughout"
 GROUNDING_STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "into",
     "is", "it", "of", "on", "or", "that", "the", "this", "to", "was", "were", "with",
@@ -96,9 +97,10 @@ def _mark_inferred_character_fields(character: dict, source_text: str) -> dict:
             not outfit_words.issubset(source_words)):
         inferred.add("outfits")
     state_words = grounding_words(" ".join(character.get("states", {}).values()))
-    default_identity_state = character.get("states") == {
-        "default": character.get("visual_identity")
-    }
+    default_identity_state = character.get("states") in (
+        {"default": character.get("visual_identity")},
+        {"default": STABLE_DEFAULT_STATE},
+    )
     if state_words and not default_identity_state and not state_words.issubset(source_words):
         inferred.add("states")
     character["inferred_fields"] = sorted(inferred)
@@ -114,7 +116,7 @@ def _normalize_character_for_source(character: dict, source_text: str) -> dict:
         grounding_words(source_text)
     )
     if len(lifecycle) < 3:
-        character["states"] = {"default": character["visual_identity"]}
+        character["states"] = {"default": STABLE_DEFAULT_STATE}
     return character
 
 

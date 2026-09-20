@@ -7,7 +7,7 @@ import sys
 from collections.abc import Callable
 
 from backend.app.models.shorts import ShortPlanDraft
-from backend.app.services.shorts_planner import grounding_words
+from backend.app.services.shorts_planner import STABLE_DEFAULT_STATE, grounding_words
 from backend.app.services.storyboard_schema import (
     StoryPlanningError,
     corrective_feedback,
@@ -42,7 +42,8 @@ def build_messages(sentences: list[dict], groups: list[list[int]]) -> list[dict]
             "Write one 8-30 word grammatical summary covering the beginning, important "
             "causes or changes, and outcome. The summary must use a meaningful source word "
             "from every group. Choose one recurring main character. Put stable appearance "
-            "only in character.visual_identity and the character fields. For a human, fill "
+            "only in character.visual_identity and the character fields. visual_identity "
+            "must describe physical identity only and must not contain clothes. For a human, fill "
             "age, hair, eyes, and clothes; use null for nonhuman fields that do not apply. "
             "Keep character.kind faithful to the source: a seed, plant, animal, or object "
             "must never be labeled human. Source text may omit appearance; choose a "
@@ -71,6 +72,14 @@ def build_messages(sentences: list[dict], groups: list[list[int]]) -> list[dict]
     ]
 
 
+def pad_short_narrations(payload: dict) -> None:
+    """Keep otherwise valid model narration inside the spoken-word budget."""
+    for scene in payload.get("scenes", []):
+        narration = str(scene.get("narration", "")).strip()
+        if 3 <= len(narration.split()) < 6:
+            scene["narration"] = narration.rstrip(".!?") + " at that moment."
+
+
 def apply_clothing_transition(draft: ShortPlanDraft, sentences: list[dict],
                               groups: list[list[int]]) -> None:
     """Derive before/after outfit IDs when the source explicitly changes clothes."""
@@ -81,11 +90,20 @@ def apply_clothing_transition(draft: ShortPlanDraft, sentences: list[dict],
                                       r"removed|removes)\b", text)), None)
     if change_index is None:
         return
-    used = {scene.outfit_id for scene in draft.scenes}
-    if len(draft.character.outfits) >= 2 and len(used) >= 2:
-        return
-    after = (draft.character.clothes or
+    clothing_match = re.search(
+        r"\bput(?:s)? on\s+(?:(?:his|her|their)\s+)?(.+?)(?=[.!?]|$)",
+        group_texts[change_index],
+    )
+    source_clothing = clothing_match.group(1).strip(" ,") if clothing_match else None
+    declared_clothing = draft.character.clothes
+    if declared_clothing and declared_clothing.lower() in {
+        "not applicable", "none", "unchanged from the reference",
+    }:
+        declared_clothing = None
+    after = (source_clothing or declared_clothing or
              next(iter(draft.character.outfits.values()), "source-described outerwear"))
+    if source_clothing:
+        draft.character.clothes = source_clothing
     draft.character.outfits = {
         "before_change": f"simple base clothes without {after}",
         "after_change": after,
@@ -100,6 +118,18 @@ def parse_short_plan(text: str, sentences: list[dict],
         payload = json.loads(strip_code_fence(text))
     except json.JSONDecodeError as exc:
         raise ValueError(f"response was not valid JSON: {exc}") from exc
+    pad_short_narrations(payload)
+    source_words = grounding_words(" ".join(item["text"] for item in sentences))
+    lifecycle_words = {"seed", "root", "stem", "leaf", "leave", "flower"}.intersection(
+        source_words
+    )
+    if len(lifecycle_words) < 3:
+        payload.setdefault("character", {})["states"] = {
+            "default": STABLE_DEFAULT_STATE,
+        }
+        for scene in payload.get("scenes", []):
+            scene["state_id"] = "default"
+
     draft = ShortPlanDraft.model_validate(payload)
     if len(draft.scenes) != len(groups):
         raise ValueError(f"must return exactly {len(groups)} scenes")
@@ -123,9 +153,11 @@ def parse_short_plan(text: str, sentences: list[dict],
             raise ValueError(
                 f"character.kind {sorted(kind_words)} is unsupported by source words"
             )
-    lifecycle_words = {"seed", "root", "stem", "leaf", "leave", "flower"}.intersection(
-        all_source_words
-    )
+    clothes_words = grounding_words(str(draft.character.clothes or ""))
+    identity_words = grounding_words(draft.character.visual_identity)
+    if clothes_words and len(clothes_words.intersection(identity_words)) >= min(
+            2, len(clothes_words)):
+        raise ValueError("character.visual_identity must not repeat clothing details")
     if len(lifecycle_words) >= 3:
         if len(draft.character.states) < 2 or len({scene.state_id for scene in draft.scenes}) < 2:
             raise ValueError(

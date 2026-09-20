@@ -32,6 +32,59 @@ Run a local demo that generates short mock `.mp4` files with `ffmpeg`:
 python -m backend.scripts.run_local_demo
 ```
 
+## Two-Stage PDF Demo
+
+The main demo is deliberately split at the review boundary. Stage 1 runs PDF extraction
+and Qwen, then saves an editable script. Stage 2 consumes that saved script and never
+reruns the planner.
+
+### Stage 1: PDF to Script
+
+```bash
+python -m backend.scripts.plan_short_pdf "test_pdfs/After the Rain.pdf"
+```
+
+This writes:
+
+```text
+storage/demo/after_the_rain/script.json
+storage/demo/after_the_rain/image_prompts.json
+```
+
+Review `summary`, `character`, `style`, the four `scenes`, narration, outfits and states
+in `script.json` before spending GPU time on video.
+
+### Stage 2: Reviewed Script to Video
+
+Fast mock demo:
+
+```bash
+python -m backend.scripts.render_short_script \
+  storage/demo/after_the_rain/script.json --backend mock
+```
+
+Real Wan GPU generation:
+
+```bash
+python -m backend.scripts.render_short_script \
+  storage/demo/after_the_rain/script.json --backend wan
+```
+
+Both commands generate four scene clips and one `*-combined.mp4` under the script's
+`videos/` directory. Use `--scene 1` to render one reviewed scene as a cheaper smoke test.
+
+Run both stages with one command when no manual review is needed:
+
+```bash
+python -m backend.scripts.run_short_demo \
+  "test_pdfs/After the Rain.pdf" --backend mock
+```
+
+Replace `mock` with `wan` for real inference. Qwen exits before video generation, so both
+models do not occupy the single GPU simultaneously. The combined MP4 currently contains
+the visual clips; `narration` and timing are present in the script, while TTS, burned-in
+captions and transitions remain the next media-composition stage.
+
 Start the API:
 
 ```bash
@@ -55,7 +108,36 @@ GET  /media/{filename}
 POST /pdf/keywords
 POST /pdf/plan
 POST /pdf/jobs
+POST /scripts/jobs
 ```
+
+For the same reviewable flow over HTTP, start one API process with:
+
+```bash
+PLANNER_BACKEND=qwen GENERATOR_BACKEND=mock uvicorn backend.app.main:app
+```
+
+Upload a PDF and save the returned script:
+
+```bash
+mkdir -p storage/demo/api
+curl -X POST http://127.0.0.1:8000/pdf/plan \
+  -H 'Content-Type: application/pdf' \
+  --data-binary @"test_pdfs/After the Rain.pdf" \
+  -o storage/demo/api/script.json
+```
+
+Submit that reviewed script without replanning:
+
+```bash
+curl -X POST http://127.0.0.1:8000/scripts/jobs \
+  -H 'Content-Type: application/json' \
+  --data-binary @storage/demo/api/script.json
+```
+
+Copy the returned `job_id` into `/status/{job_id}` and its `doc_id` into
+`/videos/{doc_id}`. The final entry is the combined video and its `url` can be opened
+through `/media/<filename>.mp4`.
 
 Example upload request:
 

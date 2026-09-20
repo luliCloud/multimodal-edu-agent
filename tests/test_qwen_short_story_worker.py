@@ -8,6 +8,8 @@ from backend.app.services.storyboard_schema import StoryPlanningError
 from backend.scripts.qwen_short_story_worker import (
     apply_clothing_transition,
     build_messages,
+    pad_short_narrations,
+    parse_short_plan,
     plan_with_retries,
 )
 
@@ -87,6 +89,16 @@ def test_rejects_narration_over_scene_budget() -> None:
         ShortPlanDraft.model_validate(payload)
 
 
+def test_pads_short_model_narration_before_validation() -> None:
+    payload = _payload()
+    payload["scenes"][0]["narration"] = "A seed sleeps in soil."
+    pad_short_narrations(payload)
+    assert payload["scenes"][0]["narration"] == (
+        "A seed sleeps in soil at that moment."
+    )
+    ShortPlanDraft.model_validate(payload)
+
+
 def test_gives_up_after_retry_budget() -> None:
     with pytest.raises(StoryPlanningError, match="invalid after 2 attempts"):
         plan_with_retries(lambda messages: "not json", build_messages(SENTENCES, GROUPS),
@@ -101,6 +113,39 @@ def test_prompt_separates_character_from_scene_and_sets_duration_budget() -> Non
     assert "never repeat age, hair, eyes, or clothing" in build_messages(
         SENTENCES, GROUPS
     )[0]["content"]
+
+
+def test_rejects_clothes_repeated_in_stable_visual_identity() -> None:
+    payload = _payload()
+    payload["character"]["clothes"] = "yellow raincoat and red boots"
+    payload["character"]["visual_identity"] = (
+        "one brown seed wearing a yellow raincoat and red boots"
+    )
+    with pytest.raises(ValueError, match="must not repeat clothing"):
+        parse_short_plan(json.dumps(payload), SENTENCES, GROUPS)
+
+
+def test_normalizes_freeform_state_ids_for_ordinary_story() -> None:
+    payload = _payload()
+    payload["summary"] = "A seed sleeps, receives rain, grows a root, and a blossom blooms."
+    payload["scenes"][3]["action"] = "A blossom blooms"
+    payload["scenes"][3]["narration"] = (
+        "The plant finally blooms into a beautiful blossom."
+    )
+    payload["character"]["states"] = {"walking": "walking through rain"}
+    for scene in payload["scenes"]:
+        scene["state_id"] = "walking in rain"
+    sentences = [
+        {"id": 1, "text": "A seed sleeps in dark soil."},
+        {"id": 2, "text": "Rain waters the seed."},
+        {"id": 3, "text": "A root grows downward."},
+        {"id": 4, "text": "A blossom blooms."},
+    ]
+    draft = parse_short_plan(json.dumps(payload), sentences, GROUPS)
+    assert draft.character.states == {
+        "default": "same physical identity throughout",
+    }
+    assert {scene.state_id for scene in draft.scenes} == {"default"}
 
 
 def test_source_clothing_change_derives_before_and_after_outfits() -> None:
@@ -123,3 +168,5 @@ def test_source_clothing_change_derives_before_and_after_outfits() -> None:
     assert [scene.outfit_id for scene in draft.scenes] == [
         "before_change", "after_change", "after_change", "after_change"
     ]
+    assert draft.character.clothes == "yellow raincoat and red boots"
+    assert draft.character.outfits["after_change"] == "yellow raincoat and red boots"

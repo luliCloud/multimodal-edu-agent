@@ -1,7 +1,7 @@
 from uuid import uuid4
 from pathlib import Path
 
-from backend.app.core.config import get_settings
+from backend.app.core.config import Settings, get_settings
 from backend.app.models.jobs import JobRecord, JobStatus, UploadRequest, VideoArtifact
 from backend.app.services.job_store import InMemoryJobStore, job_store
 from backend.app.services.mock_video import MockVideoGenerator
@@ -22,10 +22,11 @@ def get_wan_generator(output_dir) -> WanVideoGenerator:
 
 class LocalPipeline:
     def __init__(self, store: InMemoryJobStore = job_store,
-                 gpu_scheduler: SingleGpuScheduler = scheduler) -> None:
+                 gpu_scheduler: SingleGpuScheduler = scheduler,
+                 settings: Settings | None = None) -> None:
         self.store = store
         self.scheduler = gpu_scheduler
-        settings = get_settings()
+        settings = settings or get_settings()
         if settings.generator_backend == "cuda_probe":
             self.generator = CudaProbeVideoGenerator(settings.storage_dir, settings.mock_clip_seconds)
         elif settings.generator_backend == "wan":
@@ -66,12 +67,13 @@ class LocalPipeline:
                     artifact.url = f"/media/{Path(artifact.path).name}"
                 self.store.add_video(job_id, artifact)
                 self.store.update_status(job_id, JobStatus.running, progress=index / total)
-            if isinstance(self.generator, WanVideoGenerator) and len(job.videos) > 1:
-                output = assemble_mp4(job.doc_id, list(job.videos), self.generator.output_dir)
+            scene_videos = [video for video in job.videos if video.media_type == "video/mp4"]
+            if len(scene_videos) > 1 and len(scene_videos) == len(job.videos):
+                output = assemble_mp4(job.doc_id, scene_videos, self.generator.output_dir)
                 self.store.add_video(job_id, VideoArtifact(
                     segment_id=f"{job.doc_id}-combined", path=str(output),
                     media_type="video/mp4",
-                    duration_seconds=sum(video.duration_seconds for video in job.videos),
+                    duration_seconds=sum(video.duration_seconds for video in scene_videos),
                     url=f"/media/{output.name}",
                 ))
             return self.store.update_status(job_id, JobStatus.completed, progress=1.0)

@@ -28,6 +28,12 @@ class MockVideoGenerator:
 
     def generate(self, segment_id: str, segment: SegmentRequest) -> VideoArtifact:
         ffmpeg = shutil.which("ffmpeg")
+        if ffmpeg is None:
+            try:
+                import imageio_ffmpeg
+                ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+            except ImportError:
+                pass
         if ffmpeg:
             path = self._generate_mp4(ffmpeg, segment_id, segment)
             return VideoArtifact(
@@ -81,4 +87,3 @@ class MockVideoGenerator:
             raise RuntimeError(f"ffmpeg could not render {segment_id}: "
                                f"{lines[-1] if lines else 'unknown error'}")
         return path
-

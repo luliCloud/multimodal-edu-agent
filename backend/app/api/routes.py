@@ -3,11 +3,13 @@ from fastapi.responses import FileResponse
 import re
 
 from backend.app.models.jobs import JobRecord, SegmentRequest, UploadRequest, VideoArtifact
+from backend.app.models.shorts import ShortPlan
 from backend.app.services.job_store import job_store
 from backend.app.services.pipeline import LocalPipeline
 from backend.app.services.pdf_keywords import extract_pdf_pages, extract_video_keywords
 from backend.app.services.story_planner import plan_story
 from backend.app.services.storyboard_schema import ScopeExceededError, StoryPlanningError
+from backend.app.services.script_video import upload_request_from_script
 from backend.app.core.config import get_settings
 
 router = APIRouter()
@@ -61,6 +63,12 @@ def pdf_jobs(pdf: bytes = Body(..., media_type="application/pdf")) -> JobRecord:
         for scene in plan["scenes"]
     ])
     return LocalPipeline().submit(request, run_inline=False)
+
+
+@router.post("/scripts/jobs", response_model=JobRecord)
+def script_jobs(script: ShortPlan) -> JobRecord:
+    """Generate video from an already reviewed script without rerunning the planner."""
+    return LocalPipeline().submit(upload_request_from_script(script), run_inline=False)
 
 
 @router.get("/health")

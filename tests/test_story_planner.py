@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 import backend.app.services.shorts_planner as shorts_planner
+from backend.app.services.shorts_planner import STABLE_DEFAULT_STATE
 from backend.app.services.pdf_keywords import extract_pdf_pages
 from backend.app.services.story_planner import plan_story, scene_groups
 
@@ -67,7 +68,7 @@ def test_qwen_plan_exposes_global_character_and_four_grounded_scenes(monkeypatch
     assert len(plan["scenes"]) == 4
     assert plan["character"]["name"] == "Mia"
     assert plan["character"]["states"] == {
-        "default": plan["character"]["visual_identity"]
+        "default": STABLE_DEFAULT_STATE
     }
     assert plan["character_reference_prompt"].startswith("GLOBAL_CHARACTER: Mia")
     assert [scene["index"] for scene in plan["scenes"]] == [1, 2, 3, 4]
