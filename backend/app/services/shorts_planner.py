@@ -241,18 +241,17 @@ def character_reference_prompt(plan: ShortPlan) -> str:
     appearance = ", ".join(f"{label} {value}" for label, value in (
         ("age", character.age), ("hair", character.hair), ("eyes", character.eyes))
         if value is not None) or character.visual_identity
-    outfits = "; ".join(f"{name}: {clothes}" for name, clothes in character.outfits.items())
-    states = "; ".join(f"{name}: {description}"
-                       for name, description in character.states.items())
     return (
         f"GLOBAL_CHARACTER: {character.name}; {character.kind}; {appearance}. "
-        f"OUTFITS: {outfits}. "
-        f"CHARACTER_STATES: {states}. "
         f"GLOBAL_STYLE: {style.type}; {style.palette} palette; {style.shapes} shapes; "
         f"{style.lighting} lighting; {style.outline} outlines. "
-        "Create one full-body character reference sheet with front and side views for each "
-        "listed state, on a plain light background. Keep identity consistent across states. "
-        "No text, labels, logos, or other characters. Portrait composition."
+        "Create one canonical full-body character image in a neutral front-facing standing "
+        "pose on a plain light background. Establish one distinctive face, exact hairstyle, "
+        "body build, height proportions, and skin tone that can be reused unchanged. Use "
+        "simple solid-color base clothes; scene-specific wardrobe changes are not part of "
+        "this identity reference. Show one person and one view only with the complete head, "
+        "hands, legs, and feet visible. No sheet panels, text, labels, logos, props, scenery, "
+        "or other characters. Portrait composition."
     )
 
 

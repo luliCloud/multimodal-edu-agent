@@ -1,6 +1,7 @@
 """Wan2.1 text-to-video backend; the model is loaded on first GPU task."""
 
 import hashlib
+import gc
 import logging
 import os
 import re
@@ -8,6 +9,7 @@ from pathlib import Path
 
 from backend.app.models.jobs import SegmentRequest, VideoArtifact
 from backend.app.services.controlled_motion import CudaControlledMotionGenerator
+from backend.app.services.keyframe_motion import CudaKeyframeMotionGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +28,15 @@ class WanVideoGenerator:
         if self.height % 16 or self.width % 16 or (self.num_frames - 1) % 4:
             raise ValueError("Wan needs dimensions divisible by 16 and frames = 4*k+1")
         self._pipeline = None
+        self._reference_pipeline = None
+        self.reference_model_id = os.getenv(
+            "WAN_REFERENCE_MODEL_ID", "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
+        )
+        self.reference_scale = float(os.getenv("WAN_REFERENCE_SCALE", "1.0"))
         self._controlled = CudaControlledMotionGenerator(
+            output_dir, self.width, self.height, self.num_frames, self.fps
+        )
+        self._keyframe_motion = CudaKeyframeMotionGenerator(
             output_dir, self.width, self.height, self.num_frames, self.fps
         )
 
@@ -40,6 +50,7 @@ class WanVideoGenerator:
             return
         self.num_frames = self.frames_for_scene_count(scene_count, self.fps)
         self._controlled.num_frames = self.num_frames
+        self._keyframe_motion.num_frames = self.num_frames
 
     def _load_pipeline(self):
         if self._pipeline is None:
@@ -61,6 +72,111 @@ class WanVideoGenerator:
             self._pipeline = pipeline
             logger.info("Wan model loaded")
         return self._pipeline
+
+    def _load_reference_pipeline(self):
+        if self._reference_pipeline is None:
+            import torch
+            from diffusers import AutoencoderKLWan, WanVACEPipeline
+            from diffusers.schedulers import UniPCMultistepScheduler
+
+            logger.info("Loading Wan reference model %s", self.reference_model_id)
+            vae = AutoencoderKLWan.from_pretrained(
+                self.reference_model_id, subfolder="vae", torch_dtype=torch.float32
+            )
+            pipeline = WanVACEPipeline.from_pretrained(
+                self.reference_model_id, vae=vae, torch_dtype=torch.bfloat16
+            )
+            pipeline.scheduler = UniPCMultistepScheduler.from_config(
+                pipeline.scheduler.config, flow_shift=5.0
+            )
+            pipeline.enable_model_cpu_offload()
+            self._reference_pipeline = pipeline
+            logger.info("Wan visual-reference model loaded")
+        return self._reference_pipeline
+
+    def _release_text_pipeline(self) -> None:
+        """Do not retain both model pipelines after making a one-time reference."""
+        if self._pipeline is not None:
+            del self._pipeline
+            self._pipeline = None
+            gc.collect()
+            try:
+                import torch
+                torch.cuda.empty_cache()
+            except (ImportError, RuntimeError):
+                pass
+
+    def _ensure_reference_image(self, segment: SegmentRequest, gpu_id: int) -> Path:
+        if not segment.reference_image:
+            raise ValueError("A visual reference path is required")
+        path = Path(segment.reference_image)
+        if path.is_file():
+            return path
+        if not segment.reference_prompt:
+            raise FileNotFoundError(
+                f"Character reference does not exist and has no generation prompt: {path}"
+            )
+
+        import numpy as np
+        import torch
+        from PIL import Image
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pipeline = self._load_pipeline()
+        seed_source = segment.reference_id or segment.reference_prompt
+        seed = int(hashlib.sha256(seed_source.encode()).hexdigest()[:8], 16)
+        logger.info("Drawing canonical character reference once -> %s", path)
+        prompt = (
+            segment.reference_prompt
+            + " This is a still identity asset, not a scene. Keep the pose neutral and static."
+        )
+        with torch.inference_mode():
+            frame = pipeline(
+                prompt=prompt,
+                negative_prompt=(
+                    "multiple people, multiple views, character sheet, panels, text, labels, "
+                    "logo, watermark, cropped body, cropped feet, props, scenery, action pose, "
+                    "distorted face, extra limbs, low quality"
+                ),
+                height=self.height,
+                width=self.width,
+                num_frames=5,
+                num_inference_steps=self.steps,
+                guidance_scale=5.0,
+                generator=torch.Generator(device=f"cuda:{gpu_id}").manual_seed(seed),
+            ).frames[0][0]
+        pixels = np.asarray(frame)
+        if pixels.dtype != np.uint8:
+            pixels = (pixels.clip(0, 1) * 255).astype(np.uint8)
+        Image.fromarray(pixels).save(path)
+        self._release_text_pipeline()
+        return path
+
+    @staticmethod
+    def build_reference_prompt(segment: SegmentRequest) -> str:
+        """Describe only the scene; visual identity comes from the attached image."""
+        visual = segment.visual_prompt or segment.text
+        visual = re.sub(
+            r"GLOBAL_CHARACTER:.*?(?=GLOBAL_STYLE:)", "", visual,
+            flags=re.IGNORECASE | re.DOTALL,
+        ).strip()
+        keyframe_instruction = (
+            "Begin from the attached scene keyframe exactly, preserving its composition and "
+            "character design; animate it naturally without replacing the person. "
+            if segment.keyframe_image else ""
+        )
+        prompt = (
+            "Use the person in the attached reference image as the exact main character. "
+            "Preserve the same face, facial proportions, skin tone, hairstyle, body build, "
+            "height proportions, and illustration style throughout the entire shot. Do not "
+            "redesign or reinterpret the person. "
+            f"{keyframe_instruction}Scene: {visual} "
+        )
+        if segment.motion:
+            prompt += f"Motion from beginning to end: {segment.motion} "
+        return prompt + (
+            "One continuous portrait 9:16 shot. Keep the complete character inside the frame."
+        )
 
     @staticmethod
     def build_prompt(segment: SegmentRequest) -> str:
@@ -150,12 +266,25 @@ class WanVideoGenerator:
         source = segment.text.lower()
         if self.uses_controlled_motion(segment):
             return self._controlled.generate(segment_id, segment, gpu_id)
+        if (segment.keyframe_image and
+                os.getenv("WAN_KEYFRAME_MOTION", "stable").lower() == "stable"):
+            logger.info(
+                "Animating reviewed keyframe without redrawing identity: %s",
+                segment.keyframe_image,
+            )
+            return self._keyframe_motion.generate(segment_id, segment, gpu_id)
         import torch
         from diffusers.utils import export_to_video
 
         if not torch.cuda.is_available():
             raise RuntimeError("Wan backend selected but no GPU is visible")
-        pipeline = self._load_pipeline()
+        uses_reference = bool(segment.reference_image)
+        reference_path = (
+            self._ensure_reference_image(segment, gpu_id) if uses_reference else None
+        )
+        pipeline = (
+            self._load_reference_pipeline() if uses_reference else self._load_pipeline()
+        )
         seed = int(hashlib.sha256(segment.text.encode()).hexdigest()[:8], 16)
         logger.info("Generating %s on GPU %d with %d steps", segment_id, gpu_id, self.steps)
         with torch.inference_mode():
@@ -185,8 +314,9 @@ class WanVideoGenerator:
                 negative_prompt += ", empty black flower center, featureless dark disk, no seeds"
             if seed_preset and "bee" in source:
                 negative_prompt += ", extra flowers, second flower, bud, housefly, green fly"
-            frames = pipeline(
-                prompt=self.build_prompt(segment),
+            call = dict(
+                prompt=(self.build_reference_prompt(segment)
+                        if uses_reference else self.build_prompt(segment)),
                 negative_prompt=negative_prompt,
                 height=self.height,
                 width=self.width,
@@ -194,7 +324,35 @@ class WanVideoGenerator:
                 num_inference_steps=self.steps,
                 guidance_scale=5.0,
                 generator=torch.Generator(device=f"cuda:{gpu_id}").manual_seed(seed),
-            ).frames[0]
+            )
+            if uses_reference:
+                from PIL import Image, ImageOps
+                logger.info(
+                    "Generating %s with visual reference %s (%s)",
+                    segment_id, segment.reference_id, reference_path,
+                )
+                with Image.open(reference_path) as image:
+                    call["reference_images"] = [image.convert("RGB")]
+                    call["conditioning_scale"] = self.reference_scale
+                    if segment.keyframe_image:
+                        keyframe_path = Path(segment.keyframe_image)
+                        if not keyframe_path.is_file():
+                            raise FileNotFoundError(f"Scene keyframe does not exist: {keyframe_path}")
+                        with Image.open(keyframe_path) as source_keyframe:
+                            keyframe = ImageOps.fit(
+                                source_keyframe.convert("RGB"),
+                                (self.width, self.height),
+                                method=Image.Resampling.LANCZOS,
+                            )
+                        gray = Image.new("RGB", (self.width, self.height), (128, 128, 128))
+                        call["video"] = [keyframe] + [gray] * (self.num_frames - 1)
+                        black = Image.new("L", (self.width, self.height), 0)
+                        white = Image.new("L", (self.width, self.height), 255)
+                        call["mask"] = [black] + [white] * (self.num_frames - 1)
+                        logger.info("Fixing scene start to keyframe %s", keyframe_path)
+                    frames = pipeline(**call).frames[0]
+            else:
+                frames = pipeline(**call).frames[0]
         path = self.output_dir / f"{segment_id}.mp4"
         export_to_video(frames, str(path), fps=self.fps)
         return VideoArtifact(

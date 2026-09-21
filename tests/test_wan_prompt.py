@@ -1,5 +1,6 @@
 from backend.app.models.jobs import SegmentRequest
 from backend.app.services.wan_video import WanVideoGenerator
+from backend.app.services.keyframe_motion import CudaKeyframeMotionGenerator
 
 
 def test_wan_defaults_to_portrait_output(monkeypatch, tmp_path) -> None:
@@ -121,3 +122,34 @@ def test_generic_rainbow_prompt_does_not_add_rain_or_soil(monkeypatch) -> None:
     assert "raindrops" not in prompt.lower()
     assert "soil" not in prompt.lower()
     assert "Key visual elements" not in prompt
+
+
+def test_reference_prompt_uses_image_for_identity_instead_of_rewriting_character() -> None:
+    prompt = WanVideoGenerator.build_reference_prompt(SegmentRequest(
+        text="Mia jumps into a puddle.",
+        visual_prompt=(
+            "GLOBAL_CHARACTER: Mia; human; age 10, brown hair, brown eyes. "
+            "GLOBAL_STYLE: 2D children's book illustration. "
+            "SCENE_DESCRIPTION: Mia jumps into a puddle."
+        ),
+        motion="Mia jumps and water splashes outward.",
+        reference_id="character-123",
+        reference_image="character.png",
+    ))
+    assert "person in the attached reference image" in prompt
+    assert "same face" in prompt
+    assert "GLOBAL_CHARACTER" not in prompt
+    assert "brown hair" not in prompt
+    assert "Mia jumps into a puddle" in prompt
+
+
+def test_keyframe_weather_overlay_does_not_treat_rainbow_or_clearing_as_rain() -> None:
+    assert CudaKeyframeMotionGenerator.uses_rain_overlay(SegmentRequest(
+        text="Rain begins.", visual_prompt="Weather: light rain. Action: Mia watches."
+    ))
+    assert not CudaKeyframeMotionGenerator.uses_rain_overlay(SegmentRequest(
+        text="The rain stopped.", visual_prompt="Weather: clearing. Action: Mia looks up."
+    ))
+    assert not CudaKeyframeMotionGenerator.uses_rain_overlay(SegmentRequest(
+        text="A rainbow appears.", visual_prompt="Weather: sunny. Action: Mia points."
+    ))

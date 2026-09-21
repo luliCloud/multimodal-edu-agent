@@ -51,6 +51,14 @@ storage/demo/after_the_rain/script.json
 storage/demo/after_the_rain/image_prompts.json
 ```
 
+For a recurring human character, the Wan renderer now uses a real visual bible rather
+than treating the character description as sufficient. Put one canonical image at
+`storage/demo/after_the_rain/assets/character_reference.png`. Optional scene images use
+the stable names `scene_01_keyframe.png`, `scene_02_keyframe.png`, and so on. Every scene
+receives the same reference ID and image; when a keyframe exists, VACE fixes it as frame
+zero and generates only the later motion. This keeps identity in an image asset while
+scene prompts describe action, location, weather, camera, and motion.
+
 Review `summary`, `character`, `style`, all `scenes`, narration, outfits and states
 in `script.json` before spending GPU time on video.
 While Qwen runs, the CLI reports tokenizer and model loading, generation attempts,
@@ -73,6 +81,19 @@ Real Wan GPU generation:
 python -m backend.scripts.render_short_script \
   storage/demo/after_the_rain/script.json --backend wan
 ```
+
+The renderer automatically discovers the reference and keyframes under the sibling
+`assets/` directory. Use `--character-reference PATH` and `--keyframe-dir DIR` to point
+at other assets, or `--no-character-reference` for an explicit T2V comparison. With a
+human reference, Wan uses `Wan-AI/Wan2.1-VACE-1.3B-diffusers`; that checkpoint downloads
+on its first run. The CLI reports both the bible path and how many selected scenes have
+keyframes, so a reference-conditioned run cannot be confused with plain T2V.
+
+Reviewed keyframes default to `WAN_KEYFRAME_MOTION=stable`: CUDA applies a gentle camera
+move and weather overlays to the original pixels, so the face and body cannot be redrawn
+between frames. Set `WAN_KEYFRAME_MOTION=vace` for a learned-motion comparison. VACE can
+produce larger character motion, but the 1.3B checkpoint may drift from the reference;
+the stable mode is the consistency-first default for the single-GPU prototype.
 
 Both commands generate the selected scene clips and one `*-combined.mp4` under the script's
 `videos/` directory, then copy the combined result to the stable path
@@ -207,9 +228,10 @@ the worker re-prompts the model with the specific error while it is still
 loaded, up to `PLANNER_MAX_ATTEMPTS` times (default 3), rather than losing
 the run and its model load. Each scene also carries `narration` and a
 `narration_seconds` estimate at roughly 150 words per minute, which is the
-script input the audio stage needs. `visual_prompt` is ready for the current text-to-video
-backend, while `keyframe_prompt` adds the character-reference instruction needed by the
-planned image-to-video path. The extractive baseline fills the shared source, keyword and
+script input the audio stage needs. `visual_prompt` is ready for plain text-to-video;
+`keyframe_prompt` is used to create a scene image from the canonical character asset.
+The Wan VACE path then receives both that character image and, when available, the scene
+keyframe. The extractive baseline fills the shared source, keyword and
 narration fields without loading Qwen.
 
 To exercise the single-GPU worker with a synthetic CUDA-generated MP4 (this is

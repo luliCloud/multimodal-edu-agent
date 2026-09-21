@@ -20,6 +20,14 @@ class SegmentRequest(BaseModel):
     narration: str | None = None
     # Estimated read-aloud length, for the narration/audio stage to match against.
     narration_seconds: float | None = None
+    # A real image bible shared by every scene featuring the recurring character.
+    # reference_prompt is used only when the image does not exist yet.
+    reference_id: str | None = None
+    reference_image: str | None = None
+    reference_prompt: str | None = None
+    # Optional scene composition rendered from the shared character reference.
+    # VACE fixes it as frame zero and generates motion after it.
+    keyframe_image: str | None = None
 
 
 class UploadRequest(BaseModel):
