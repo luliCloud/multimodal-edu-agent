@@ -18,10 +18,17 @@ def default_output_dir(pdf: Path) -> Path:
 
 def create_script_bundle(pdf: Path, output_dir: Path | None = None) -> tuple[Path, Path]:
     output_dir = output_dir or default_output_dir(pdf)
+    print(f"reading PDF: {pdf}", flush=True)
     pages = extract_pdf_pages(pdf.read_bytes())
     title = next((line.strip() for line in pages[0].splitlines() if line.strip()), pdf.stem)
     output_dir.mkdir(parents=True, exist_ok=True)
+    print(
+        f"extracted {len(pages)} page(s); running Qwen planner on GPU "
+        "(usually 1-3 minutes)...",
+        flush=True,
+    )
     plan = plan_short_story(pages, title)
+    print("Qwen plan validated; writing script bundle...", flush=True)
     script_path = output_dir / "script.json"
     script_path.write_text(plan.model_dump_json(indent=2), encoding="utf-8")
     prompts = {"reference": character_reference_prompt(plan),
