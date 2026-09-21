@@ -1,10 +1,23 @@
-"""Validated contract for a four-scene, 15-second educational short."""
+"""Validated contract for a 4-8 scene, 15-second educational short."""
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 MIN_SCENE_NARRATION_WORDS = 6
 MAX_SCENE_NARRATION_WORDS = 9
 MAX_TOTAL_NARRATION_WORDS = 36
+MIN_SCENES = 4
+MAX_SCENES = 8
+
+
+def narration_word_range(scene_count: int) -> tuple[int, int]:
+    """Allocate the spoken-word budget across the selected number of scenes."""
+    if scene_count <= 4:
+        return 6, 9
+    if scene_count == 5:
+        return 5, 7
+    if scene_count == 6:
+        return 4, 6
+    return 3, 6
 
 
 class CharacterSpec(BaseModel):
@@ -67,34 +80,32 @@ class ShortSceneDraft(BaseModel):
             raise ValueError("must not be empty")
         return value.strip()
 
-    @field_validator("narration")
-    @classmethod
-    def enforce_narration_budget(cls, value: str) -> str:
-        words = len(value.split())
-        if not MIN_SCENE_NARRATION_WORDS <= words <= MAX_SCENE_NARRATION_WORDS:
-            raise ValueError(
-                f"narration is {words} words, expected "
-                f"{MIN_SCENE_NARRATION_WORDS}-{MAX_SCENE_NARRATION_WORDS}"
-            )
-        return value
-
-
 class ShortPlanDraft(BaseModel):
     summary: str = Field(min_length=1)
     character: CharacterSpec
-    scenes: list[ShortSceneDraft] = Field(min_length=4, max_length=4)
+    scenes: list[ShortSceneDraft] = Field(min_length=MIN_SCENES, max_length=MAX_SCENES)
 
     @field_validator("summary")
     @classmethod
     def validate_summary(cls, value: str) -> str:
         value = value.strip()
         words = len(value.split())
-        if not 8 <= words <= 30:
-            raise ValueError(f"summary is {words} words, expected 8-30")
+        if not 8 <= words <= 48:
+            raise ValueError(f"summary is {words} words, expected 8-48")
         return value
 
     @model_validator(mode="after")
     def validate_outfit_references(self) -> "ShortPlanDraft":
+        minimum, maximum = narration_word_range(len(self.scenes))
+        for index, scene in enumerate(self.scenes, 1):
+            words = len(scene.narration.split())
+            if not minimum <= words <= maximum:
+                raise ValueError(
+                    f"scene {index} narration is {words} words, expected "
+                    f"{minimum}-{maximum}"
+                )
+        if sum(len(scene.narration.split()) for scene in self.scenes) > MAX_TOTAL_NARRATION_WORDS:
+            raise ValueError("total narration exceeds the 15-second word budget")
         unknown = {scene.outfit_id for scene in self.scenes} - set(self.character.outfits)
         if unknown:
             raise ValueError(f"scene outfit_id values are undefined: {sorted(unknown)}")
@@ -105,7 +116,7 @@ class ShortPlanDraft(BaseModel):
 
 
 class ShortScene(ShortSceneDraft):
-    scene: int = Field(ge=1, le=4)
+    scene: int = Field(ge=1, le=MAX_SCENES)
     source_sentence_ids: list[int] = Field(min_length=1)
     text: str = Field(min_length=1)
     pages: list[int] = Field(min_length=1)
@@ -120,7 +131,7 @@ class ShortPlan(BaseModel):
     summary: str = Field(min_length=1)
     character: CharacterSpec
     style: StyleSpec = Field(default_factory=StyleSpec)
-    scenes: list[ShortScene] = Field(min_length=4, max_length=4)
+    scenes: list[ShortScene] = Field(min_length=MIN_SCENES, max_length=MAX_SCENES)
     source_sentences: list[dict]
     duration_seconds: int = 15
 
@@ -129,8 +140,8 @@ class ShortPlan(BaseModel):
         expected = [item["id"] for item in self.source_sentences]
         actual = [sentence_id for scene in self.scenes
                   for sentence_id in scene.source_sentence_ids]
-        if [scene.scene for scene in self.scenes] != [1, 2, 3, 4]:
-            raise ValueError("short plan needs four scenes in order")
+        if [scene.scene for scene in self.scenes] != list(range(1, len(self.scenes) + 1)):
+            raise ValueError("short plan scenes must be numbered consecutively")
         if actual != expected:
             raise ValueError("short scenes must cover each source sentence exactly once")
         if any(scene.outfit_id not in self.character.outfits for scene in self.scenes):
@@ -138,6 +149,13 @@ class ShortPlan(BaseModel):
         if any(scene.state_id not in self.character.states for scene in self.scenes):
             raise ValueError("scene state_id must reference a global character state")
         narration_words = sum(len(scene.narration.split()) for scene in self.scenes)
+        minimum, maximum = narration_word_range(len(self.scenes))
+        if any(not minimum <= len(scene.narration.split()) <= maximum
+               for scene in self.scenes):
+            raise ValueError(
+                f"scene narration must contain {minimum}-{maximum} words for "
+                f"a {len(self.scenes)}-scene plan"
+            )
         if narration_words > MAX_TOTAL_NARRATION_WORDS:
             raise ValueError("total narration exceeds the 15-second word budget")
         if self.duration_seconds != 15:

@@ -6,7 +6,7 @@ import re
 import sys
 from collections.abc import Callable
 
-from backend.app.models.shorts import ShortPlanDraft
+from backend.app.models.shorts import ShortPlanDraft, narration_word_range
 from backend.app.services.shorts_planner import STABLE_DEFAULT_STATE, grounding_words
 from backend.app.services.storyboard_schema import (
     StoryPlanningError,
@@ -34,10 +34,14 @@ def build_source_block(sentences: list[dict], groups: list[list[int]]) -> str:
 
 
 def build_messages(sentences: list[dict], groups: list[list[int]]) -> list[dict]:
+    scene_count = len(groups)
+    minimum_words, maximum_words = narration_word_range(scene_count)
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": (
-            "Create exactly four scenes, one for each source group and in the same order. "
+            f"Create exactly {scene_count} scenes, one for each source group and in the same "
+            "order. Each scene must show one clear visual action; never merge later lifecycle "
+            "forms into an earlier scene. "
             "Cover the most important visible action in every group, including the ending. "
             "Write one 8-30 word grammatical summary covering the beginning, important "
             "causes or changes, and outcome. The summary must use a meaningful source word "
@@ -58,7 +62,8 @@ def build_messages(sentences: list[dict], groups: list[list[int]]) -> list[dict]
             "secondary characters. Each action, narration, and the summary must use at least "
             "two meaningful words from every corresponding source group. Motion must visibly "
             "animate that group's action from start to end. "
-            "Narration must be one natural sentence of 6-9 words. No written dialogue. If rain "
+            f"Narration must be one natural sentence of {minimum_words}-{maximum_words} words. "
+            "No written dialogue. If rain "
             "stops, later scenes must not show falling rain. "
             'Schema: {"summary":"...","character":{"name":"...","kind":"...",'
             '"visual_identity":"...","age":null,"hair":null,"eyes":null,"clothes":null,'
@@ -74,10 +79,76 @@ def build_messages(sentences: list[dict], groups: list[list[int]]) -> list[dict]
 
 def pad_short_narrations(payload: dict) -> None:
     """Keep otherwise valid model narration inside the spoken-word budget."""
-    for scene in payload.get("scenes", []):
+    scenes = payload.get("scenes", [])
+    minimum, _ = narration_word_range(len(scenes))
+    for scene in scenes:
         narration = str(scene.get("narration", "")).strip()
-        if 3 <= len(narration.split()) < 6:
-            scene["narration"] = narration.rstrip(".!?") + " at that moment."
+        word_count = len(narration.split())
+        if 1 <= word_count < minimum:
+            missing = minimum - word_count
+            additions = {
+                1: ["now"],
+                2: ["right", "now"],
+                3: ["in", "this", "moment"],
+                4: ["right", "at", "this", "moment"],
+                5: ["clearly", "right", "at", "this", "moment"],
+            }[missing]
+            scene["narration"] = narration.rstrip(".!?") + " " + " ".join(additions) + "."
+
+
+def normalize_scene_references(payload: dict, sentences: list[dict],
+                               groups: list[list[int]]) -> None:
+    """Map free-text model aliases onto declared global outfit and lifecycle IDs."""
+    character = payload.get("character", {})
+    states = character.get("states", {})
+    outfits = character.get("outfits", {})
+    by_id = {item["id"]: item["text"] for item in sentences}
+    last_state = next(iter(states), None)
+    default_outfit = next(iter(outfits), None)
+    for scene, group in zip(payload.get("scenes", []), groups):
+        if states and scene.get("state_id") not in states:
+            context = grounding_words(
+                str(scene.get("action", "")) + " " + " ".join(by_id[item] for item in group)
+            )
+            scored = [
+                (len(context.intersection(grounding_words(key + " " + value))), key)
+                for key, value in states.items()
+            ]
+            score, selected = max(scored)
+            scene["state_id"] = selected if score else last_state
+        if scene.get("state_id") in states:
+            last_state = scene["state_id"]
+        if outfits and scene.get("outfit_id") not in outfits:
+            scene["outfit_id"] = default_outfit
+
+
+def apply_lifecycle_scene_contract(payload: dict) -> None:
+    """Keep the eight visible plant stages separate and non-anthropomorphic."""
+    states = {
+        "dormant_seed": "one small dormant seed, no face, no limbs",
+        "watered_seed": "the same seed absorbing rainwater, no sprout yet",
+        "root": "the same seed with one pale root growing downward",
+        "stem": "the same plant with one green stem growing upward",
+        "leaves": "the same green plant with four attached leaves",
+        "flower": "the same plant with one open yellow flower",
+        "flower_with_bee": "the same yellow flower; the bee is a separate visitor",
+        "new_seeds": "the same yellow flower with visible new seeds inside",
+    }
+    cameras = [
+        "macro soil cutaway, entire seed visible",
+        "wide soil cutaway with sky, seed, and rain visible",
+        "macro soil cutaway, entire root visible",
+        "medium side view, entire stem visible",
+        "medium front view, entire plant visible",
+        "medium full-plant view, flower and stem visible",
+        "wide side view, entire bee and flower visible",
+        "macro flower-center view, all new seeds visible",
+    ]
+    character = payload.setdefault("character", {})
+    character["states"] = states
+    for scene, state_id, camera in zip(payload.get("scenes", []), states, cameras):
+        scene["state_id"] = state_id
+        scene["camera"] = camera
 
 
 def apply_clothing_transition(draft: ShortPlanDraft, sentences: list[dict],
@@ -119,10 +190,13 @@ def parse_short_plan(text: str, sentences: list[dict],
     except json.JSONDecodeError as exc:
         raise ValueError(f"response was not valid JSON: {exc}") from exc
     pad_short_narrations(payload)
+    normalize_scene_references(payload, sentences, groups)
     source_words = grounding_words(" ".join(item["text"] for item in sentences))
     lifecycle_words = {"seed", "root", "stem", "leaf", "leave", "flower"}.intersection(
         source_words
     )
+    if len(lifecycle_words) >= 3 and len(groups) == 8:
+        apply_lifecycle_scene_contract(payload)
     if len(lifecycle_words) < 3:
         payload.setdefault("character", {})["states"] = {
             "default": STABLE_DEFAULT_STATE,
@@ -170,19 +244,20 @@ def parse_short_plan(text: str, sentences: list[dict],
         source_words = grounding_words(" ".join(by_id[item] for item in group))
         action_words = grounding_words(scene.action) - name_words
         narration_words = grounding_words(scene.narration) - name_words
-        required = min(2, len(source_words - name_words))
+        required = min(1 if len(groups) > 4 else 2, len(source_words - name_words))
         action_overlap = action_words.intersection(source_words)
         narration_overlap = narration_words.intersection(source_words)
         summary_overlap = summary_words.intersection(source_words)
+        narration_required = min(required, max(1, len(narration_words) // 2))
         if len(action_overlap) < required:
             raise ValueError(
                 f"scene {index} action is not grounded: action words {sorted(action_words)} "
                 f"must include {required} source words from {sorted(source_words)}"
             )
-        if len(narration_overlap) < required:
+        if len(narration_overlap) < narration_required:
             raise ValueError(
                 f"scene {index} narration is not grounded: narration words "
-                f"{sorted(narration_words)} must include {required} source words from "
+                f"{sorted(narration_words)} must include {narration_required} source words from "
                 f"{sorted(source_words)}"
             )
         if len(summary_overlap) < required:

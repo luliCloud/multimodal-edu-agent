@@ -14,6 +14,7 @@ from backend.app.models.shorts import ShortPlan
 from backend.app.services.job_store import InMemoryJobStore
 from backend.app.services.pipeline import LocalPipeline
 from backend.app.services.script_video import upload_request_from_script
+from backend.app.services.wan_video import WanVideoGenerator
 
 
 def render_script(plan: ShortPlan, backend: str, output_dir: Path,
@@ -75,10 +76,15 @@ def render_script_with_progress(plan: ShortPlan, backend: str, output_dir: Path,
     print(f"[video] backend: {backend}; scenes: {selected}", flush=True)
     print(f"[video] output directory: {output_dir.resolve()}", flush=True)
     if backend == "wan":
+        fps = int(os.getenv("WAN_FPS", "9"))
+        frames = int(os.getenv(
+            "WAN_NUM_FRAMES",
+            str(WanVideoGenerator.frames_for_scene_count(len(selected), fps)),
+        ))
         print(
             "[video] Wan configuration: "
-            f"{os.getenv('WAN_WIDTH', '576')}x{os.getenv('WAN_HEIGHT', '320')}, "
-            f"{os.getenv('WAN_NUM_FRAMES', '33')} frames, "
+            f"{os.getenv('WAN_WIDTH', '320')}x{os.getenv('WAN_HEIGHT', '576')}, "
+            f"{frames} frames at {fps} fps, "
             f"{os.getenv('WAN_STEPS', '20')} steps; loading may take a minute",
             flush=True,
         )

@@ -7,6 +7,7 @@ from backend.app.models.shorts import ShortPlanDraft
 from backend.app.services.storyboard_schema import StoryPlanningError
 from backend.scripts.qwen_short_story_worker import (
     apply_clothing_transition,
+    apply_lifecycle_scene_contract,
     build_messages,
     pad_short_narrations,
     parse_short_plan,
@@ -101,9 +102,25 @@ def test_pads_short_model_narration_before_validation() -> None:
     payload["scenes"][0]["narration"] = "A seed sleeps in soil."
     pad_short_narrations(payload)
     assert payload["scenes"][0]["narration"] == (
-        "A seed sleeps in soil at that moment."
+        "A seed sleeps in soil now."
     )
     ShortPlanDraft.model_validate(payload)
+
+
+def test_maps_free_text_lifecycle_state_to_declared_state() -> None:
+    payload = _payload()
+    payload["scenes"][0]["state_id"] = "dormant"
+    draft = parse_short_plan(json.dumps(payload), SENTENCES, GROUPS)
+    assert draft.scenes[0].state_id == "seed"
+
+
+def test_lifecycle_contract_separates_first_and_final_seed_states() -> None:
+    payload = {"character": {}, "scenes": [{"camera": "close"} for _ in range(8)]}
+    apply_lifecycle_scene_contract(payload)
+    assert payload["scenes"][0]["state_id"] == "dormant_seed"
+    assert payload["scenes"][6]["state_id"] == "flower_with_bee"
+    assert payload["scenes"][7]["state_id"] == "new_seeds"
+    assert "entire bee and flower visible" in payload["scenes"][6]["camera"]
 
 
 def test_gives_up_after_retry_budget() -> None:
@@ -114,7 +131,7 @@ def test_gives_up_after_retry_budget() -> None:
 
 def test_prompt_separates_character_from_scene_and_sets_duration_budget() -> None:
     prompt = build_messages(SENTENCES, GROUPS)[1]["content"]
-    assert "exactly four scenes" in prompt
+    assert "exactly 4 scenes" in prompt
     assert "6-9 words" in prompt
     assert "character.outfits" in prompt
     assert "never repeat age, hair, eyes, or clothing" in build_messages(

@@ -2,6 +2,35 @@ from backend.app.models.jobs import SegmentRequest
 from backend.app.services.wan_video import WanVideoGenerator
 
 
+def test_wan_defaults_to_portrait_output(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("WAN_WIDTH", raising=False)
+    monkeypatch.delenv("WAN_HEIGHT", raising=False)
+    generator = WanVideoGenerator(tmp_path)
+    assert (generator.width, generator.height) == (320, 576)
+    assert generator.fps == 9
+    generator.fit_scene_count(8)
+    assert generator.num_frames == 17
+    assert generator._controlled.num_frames == 17
+
+
+def test_lifecycle_reference_routes_every_stage_to_controlled_motion(monkeypatch) -> None:
+    monkeypatch.delenv("WAN_CONTROLLED_MOTION", raising=False)
+    prefix = "GLOBAL_CHARACTER: Seedling; plant; same physical identity. "
+    for text in (
+        "A little seed slept in soil.",
+        "Rain fell on the seed.",
+        "A yellow flower appeared.",
+        "A bee flew over to visit.",
+        "New seeds formed inside the flower.",
+    ):
+        assert WanVideoGenerator.uses_controlled_motion(
+            SegmentRequest(text=text, visual_prompt=prefix)
+        )
+    assert not WanVideoGenerator.uses_controlled_motion(
+        SegmentRequest(text="A rainbow appeared over Mia.")
+    )
+
+
 def test_prompt_uses_scene_and_visual_keywords(monkeypatch) -> None:
     monkeypatch.setenv("WAN_CONTROLLED_MOTION", "1")
     prompt = WanVideoGenerator.build_prompt(

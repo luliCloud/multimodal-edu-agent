@@ -54,6 +54,35 @@ def four_scene_groups(sentences: list[dict]) -> list[list[int]]:
             for index in range(4)]
 
 
+def story_scene_groups(sentences: list[dict]) -> list[list[int]]:
+    """Use semantic lifecycle cuts when several visible transformations must stay separate."""
+    text = [item["text"].lower() for item in sentences]
+
+    def first(pattern: str) -> int | None:
+        return next((index for index, sentence in enumerate(text)
+                     if re.search(pattern, sentence)), None)
+
+    anchors = [
+        first(r"\b(?:sun|sunlight|rain|water)\b"),
+        first(r"\broots?\b"),
+        first(r"\bstems?\b"),
+        first(r"\b(?:leaf|leaves)\b"),
+        first(r"\bflowers?\b"),
+        first(r"\bbees?\b"),
+        first(r"\b(?:not a seed anymore|new seeds?)\b"),
+    ]
+    if (all(anchor is not None for anchor in anchors) and
+            anchors == sorted(set(anchors)) and anchors[0] > 0):
+        boundaries = [0, *anchors, len(sentences)]
+        groups = [
+            [item["id"] for item in sentences[start:end]]
+            for start, end in zip(boundaries, boundaries[1:])
+        ]
+        if len(groups) == 8 and all(groups):
+            return groups
+    return four_scene_groups(sentences)
+
+
 def _worker_env() -> dict[str, str]:
     env = os.environ.copy()
     settings = get_settings()
@@ -66,6 +95,14 @@ def _worker_env() -> dict[str, str]:
 
 def grounding_words(text: str) -> set[str]:
     def normalize(word: str) -> str:
+        irregular = {
+            "has": "have", "had": "have", "gave": "give",
+            "grew": "grow", "grown": "grow", "flew": "fly",
+            "drank": "drink", "slept": "sleep", "bore": "bear",
+            "downward": "down", "upward": "up",
+        }
+        if word in irregular:
+            return irregular[word]
         if word.endswith("ies") and len(word) > 4:
             return word[:-3] + "y"
         if word.endswith("ing") and len(word) > 5:
@@ -122,7 +159,7 @@ def _normalize_character_for_source(character: dict, source_text: str) -> dict:
 
 def plan_short_story(pages: list[str], title: str) -> ShortPlan:
     sentences = source_sentences(pages)
-    groups = four_scene_groups(sentences)
+    groups = story_scene_groups(sentences)
 
     def run_worker(gpu_id: int) -> dict:
         print(

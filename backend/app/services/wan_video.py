@@ -17,17 +17,29 @@ class WanVideoGenerator:
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.model_id = os.getenv("WAN_MODEL_ID", "Wan-AI/Wan2.1-T2V-1.3B-Diffusers")
-        self.height = int(os.getenv("WAN_HEIGHT", "320"))
-        self.width = int(os.getenv("WAN_WIDTH", "576"))
+        self.height = int(os.getenv("WAN_HEIGHT", "576"))
+        self.width = int(os.getenv("WAN_WIDTH", "320"))
+        self._frames_explicit = "WAN_NUM_FRAMES" in os.environ
         self.num_frames = int(os.getenv("WAN_NUM_FRAMES", "33"))
         self.steps = int(os.getenv("WAN_STEPS", "20"))
-        self.fps = int(os.getenv("WAN_FPS", "8"))
+        self.fps = int(os.getenv("WAN_FPS", "9"))
         if self.height % 16 or self.width % 16 or (self.num_frames - 1) % 4:
             raise ValueError("Wan needs dimensions divisible by 16 and frames = 4*k+1")
         self._pipeline = None
         self._controlled = CudaControlledMotionGenerator(
             output_dir, self.width, self.height, self.num_frames, self.fps
         )
+
+    @staticmethod
+    def frames_for_scene_count(scene_count: int, fps: int, seconds: int = 15) -> int:
+        target = seconds * fps / max(scene_count, 1)
+        return max(5, 4 * round((target - 1) / 4) + 1)
+
+    def fit_scene_count(self, scene_count: int) -> None:
+        if self._frames_explicit:
+            return
+        self.num_frames = self.frames_for_scene_count(scene_count, self.fps)
+        self._controlled.num_frames = self.num_frames
 
     def _load_pipeline(self):
         if self._pipeline is None:
@@ -55,7 +67,7 @@ class WanVideoGenerator:
         visual_text = re.sub(r'[“"][^”"]+[”"]\s*said[^.]*\.', '', segment.text)
         visual_text = re.sub(r"\s+", " ", visual_text).strip()
         source = segment.text.lower()
-        seed_preset = os.getenv("WAN_CONTROLLED_MOTION", "0") == "1"
+        seed_preset = os.getenv("WAN_CONTROLLED_MOTION", "1") == "1"
         seed_before_growth = seed_preset and "seed" in source and "bee" not in source and not any(
             stage in source for stage in ("root", "stem", "leaves", "flower")
         )
@@ -98,7 +110,8 @@ class WanVideoGenerator:
             "A hand-painted 2D watercolor children's storybook animation with fine ink outlines "
             "and colors faithful to the story. Keep recurring subjects visually "
             "consistent, but show only the current stage of the story. "
-            "One continuous side-view shot, visibly animated motion. "
+            "One continuous portrait 9:16 shot with visibly animated motion. Keep the entire "
+            "main subject inside the frame with generous space on every side; no cropped body. "
             f"Scene: {visual} "
         )
         motion = ("The camera slowly pushes closer while a few grains of soil settle; "
@@ -112,19 +125,30 @@ class WanVideoGenerator:
             prompt += ("Show the bee in side profile flying toward the flower, its head facing "
                        "the flower and its abdomen trailing behind; its wings beat visibly. "
                        "The bee travels across at least one third of the frame during the shot. ")
+        if rain_before_growth:
+            prompt += ("Many small translucent pale-blue raindrops fall visibly from above "
+                       "and make gentle splashes on the dark soil. ")
         if concepts and not segment.visual_prompt:
             prompt += f"Key visual elements: {concepts}. "
         return prompt.strip()
 
+    @staticmethod
+    def uses_controlled_motion(segment: SegmentRequest) -> bool:
+        if os.getenv("WAN_CONTROLLED_MOTION", "1") != "1":
+            return False
+        source = segment.text.lower()
+        visual = (segment.visual_prompt or "").lower()
+        explicit_lifecycle = any(
+            term in source for term in ("seed", "root", "stem", "leaves", "new seeds")
+        )
+        referenced_plant = "global_character:" in visual and "; plant;" in visual
+        return explicit_lifecycle or (referenced_plant and any(
+            term in source for term in ("flower", "bee", "rain")
+        ))
+
     def generate(self, segment_id: str, segment: SegmentRequest, gpu_id: int) -> VideoArtifact:
         source = segment.text.lower()
-        if os.getenv("WAN_CONTROLLED_MOTION", "0") == "1" and (
-            ("root" in source and "stem" not in source) or
-            ("stem" in source and "leaves" not in source) or
-            ("leaves" in source and "flower" not in source) or
-            ("bee" in source and ("flower" in source or
-                                  "flower" in (segment.visual_prompt or "").lower()))
-        ):
+        if self.uses_controlled_motion(segment):
             return self._controlled.generate(segment_id, segment, gpu_id)
         import torch
         from diffusers.utils import export_to_video
@@ -138,10 +162,12 @@ class WanVideoGenerator:
             negative_prompt = (
                 "on-screen text, letters, words, captions, title card, subtitles, "
                 "logo, watermark, frozen frame, static image, "
-                "extra limbs, overexposed, washed out, blurry, distorted, low quality"
+                "cropped subject, cut-off body, anthropomorphic seed, anthropomorphic plant, "
+                "flower with a face, flower with eyes, arms, legs, humanoid plant, extra limbs, "
+                "overexposed, washed out, blurry, distorted, low quality"
             )
             source = segment.text.lower()
-            seed_preset = os.getenv("WAN_CONTROLLED_MOTION", "0") == "1"
+            seed_preset = os.getenv("WAN_CONTROLLED_MOTION", "1") == "1"
             seed_before_growth = seed_preset and "seed" in source and "bee" not in source and not any(
                 stage in source for stage in ("root", "stem", "leaves", "flower")
             )

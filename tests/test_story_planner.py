@@ -3,7 +3,11 @@ from pathlib import Path
 import pytest
 
 import backend.app.services.shorts_planner as shorts_planner
-from backend.app.services.shorts_planner import STABLE_DEFAULT_STATE
+from backend.app.services.shorts_planner import (
+    STABLE_DEFAULT_STATE,
+    source_sentences,
+    story_scene_groups,
+)
 from backend.app.services.pdf_keywords import extract_pdf_pages
 from backend.app.services.story_planner import plan_story, scene_groups
 
@@ -58,6 +62,15 @@ def test_four_scene_groups_reject_out_of_scope_documents() -> None:
         scene_groups([{"id": 1, "text": "One event."}])
     with pytest.raises(ValueError, match="up to 32"):
         scene_groups([{"id": i, "text": f"Event {i}."} for i in range(1, 34)])
+
+
+def test_lifecycle_story_uses_separate_visual_milestones() -> None:
+    path = Path(__file__).parents[1] / "test_pdfs/The_Little_Seed.pdf"
+    sentences = source_sentences(extract_pdf_pages(path.read_bytes()))
+    assert story_scene_groups(sentences) == [
+        [1, 2], [3, 4, 5], [6], [7, 8, 9],
+        [10, 11, 12, 13, 14], [15], [16, 17], [18, 19, 20],
+    ]
 
 
 def test_qwen_plan_exposes_global_character_and_four_grounded_scenes(monkeypatch) -> None:

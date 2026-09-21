@@ -1,18 +1,18 @@
-"""Public planner facade for extractive fallback and four-scene Qwen plans."""
+"""Public planner facade for extractive fallback and adaptive Qwen plans."""
 
 from backend.app.services.pdf_keywords import extract_video_keywords, extract_video_scenes
 from backend.app.services.shorts_planner import (
     character_reference_prompt,
-    four_scene_groups,
     plan_short_story,
+    story_scene_groups,
     source_sentences,
 )
 from backend.app.services.storyboard_schema import narration_seconds
 
 
 def scene_groups(sentences: list[dict]) -> list[list[int]]:
-    """Compatibility wrapper for the single four-scene grouping policy."""
-    return four_scene_groups(sentences)
+    """Compatibility wrapper for the adaptive 4-8 scene grouping policy."""
+    return story_scene_groups(sentences)
 
 
 def plan_story(pages: list[str], backend: str = "extractive",

@@ -51,7 +51,7 @@ storage/demo/after_the_rain/script.json
 storage/demo/after_the_rain/image_prompts.json
 ```
 
-Review `summary`, `character`, `style`, the four `scenes`, narration, outfits and states
+Review `summary`, `character`, `style`, all `scenes`, narration, outfits and states
 in `script.json` before spending GPU time on video.
 While Qwen runs, the CLI reports tokenizer and model loading, generation attempts,
 generated-token milestones every 100 tokens, validation failures and retries, and final
@@ -74,7 +74,7 @@ python -m backend.scripts.render_short_script \
   storage/demo/after_the_rain/script.json --backend wan
 ```
 
-Both commands generate four scene clips and one `*-combined.mp4` under the script's
+Both commands generate the selected scene clips and one `*-combined.mp4` under the script's
 `videos/` directory, then copy the combined result to the stable path
 `storage/demo/after_the_rain/final.mp4`. Use `--scene 1` to render one reviewed scene as
 a cheaper smoke test; that single clip is also published as `final.mp4`.
@@ -178,7 +178,8 @@ evidence. Scanned PDFs need OCR first.
 `/pdf/plan` preserves narrative order, page references, and per-scene keywords;
 `/pdf/jobs` submits those scenes and keywords as video tasks. With the Wan
 backend, local Qwen3-4B-Instruct first summarizes the extracted sentences and plans
-exactly four scenes for a 15-second short. Every plan separates global character,
+4-8 scenes for a 15-second short. Ordinary stories use four scenes; milestone-dense plant
+lifecycle stories use eight single-action scenes. Every plan separates global character,
 outfit, lifecycle-state and style definitions from per-scene action, weather, camera,
 motion and narration. Each scene retains exact source-sentence IDs and page evidence.
 The planner assigns every source sentence to an ordered group before asking Qwen to
@@ -195,10 +196,10 @@ run: model-written details can still go beyond the PDF even when the scene
 order is grounded.
 
 Every scene is checked against the Pydantic contract in
-`backend/app/models/shorts.py`: the plan has exactly four ordered scenes, full source
-coverage, valid global `outfit_id` and `state_id` references, and 6-9 narration words
-per scene with no more than 36 words total. Action, narration and summary fields must
-contain multiple source anchors from their assigned groups. Botanical stories cannot
+`backend/app/models/shorts.py`: the plan has 4-8 consecutively ordered scenes, full source
+coverage, valid global `outfit_id` and `state_id` references, and a per-scene narration
+budget fitted to scene count with no more than 36 words total. Action, narration and
+summary fields must contain source anchors from their assigned groups. Botanical stories cannot
 silently become human characters. Explicit clothing changes are assigned deterministic
 before/after outfits, and lifecycle stories must use multiple global character states.
 When generation fails a check,
@@ -223,14 +224,14 @@ CUDA tensor execution, scheduling, and MP4 encoding.
 
 For a real text-to-video test, install `.[wan]` and generate selected PDF scenes with
 Wan2.1 T2V 1.3B. Model weights download to the Hugging Face cache on first use;
-the official Diffusers repository is roughly 29 GB. The defaults use 33 frames
-at 576×320 and 20 inference steps, with CPU model offload for a 16 GB GPU.
+the official Diffusers repository is roughly 29 GB. The defaults use portrait 320×576,
+9 fps and 20 inference steps, with CPU model offload for a 16 GB GPU. Frame count is
+fitted to scene count: four scenes use 33 frames each and eight scenes use 17 frames each.
 The local Qwen planner also downloads its model on first use (roughly 8 GB).
-By default, the Wan backend uses Wan for every scene. For the seed-growth
-story, set `WAN_CONTROLLED_MOTION=1` to use simple CUDA-rendered 2D animations
-for root, stem, leaves, and bee scenes. Those scenes make growth direction,
-leaf attachment, and the bee's head direction deterministic, but are specific
-to that story and look different from the Wan clips.
+By default, plant lifecycle scenes use one consistent CUDA-rendered 2D style for the
+dormant seed, rain, root, stem, leaves, flower, bee, and new seeds. This keeps growth
+direction, framing, anatomy, and palette deterministic. Set `WAN_CONTROLLED_MOTION=0`
+to compare pure Wan generation; other stories continue to use Wan normally.
 
 ```bash
 GENERATOR_BACKEND=wan python -m backend.scripts.run_wan_pdf_demo test_pdfs/The_Little_Seed.pdf --scene 2 --scene 4
@@ -246,7 +247,7 @@ Use `/pdf/jobs` with `GENERATOR_BACKEND=wan` to process all scenes, or run
 `GENERATOR_BACKEND=wan WAN_STEPS=12 python -m backend.scripts.run_cuda_pdf_demo test_pdfs/The_Little_Seed.pdf`
 to generate and concatenate the full test PDF locally. This can take
 several minutes for the PDF; the 15-second latency target is not yet met. For a
-smaller smoke test, set `WAN_NUM_FRAMES=17 WAN_STEPS=8 WAN_HEIGHT=256 WAN_WIDTH=448`.
+smaller smoke test, set `WAN_NUM_FRAMES=17 WAN_STEPS=8 WAN_HEIGHT=448 WAN_WIDTH=256`.
 The demo script also concatenates completed MP4 scenes into one `*-combined.mp4`
 file in `storage/videos`. Wan PDF jobs also add the combined file to their
 `/videos/{doc_id}` result. With the API running, open `/media/<filename>.mp4`
@@ -254,8 +255,8 @@ in a browser to play a generated clip or the combined video.
 
 ## Next Implementation Step
 
-Generate the single character/state reference and four consistent keyframes, then run
-2-4 second image-to-video animation for each keyframe. Synthesize audio from `narration`
+Generate the single character/state reference and one consistent keyframe per scene, then run
+image-to-video animation for each keyframe. Synthesize audio from `narration`
 and `narration_seconds`, add captions and transitions, and assemble the 15-second result.
 Keep the PDF plan reviewable before expensive image or video generation.
 
@@ -266,6 +267,6 @@ pytest
 ```
 
 The suite runs without a GPU, poppler or the optional extras; the Wan
-assembly test skips itself when `imageio-ffmpeg` is absent. The four-scene planner's
+assembly test skips itself when `imageio-ffmpeg` is absent. The adaptive planner's
 retry, grounding, duration, state and outfit contracts are covered with a stubbed
 generator; the model path itself still needs a CUDA box to exercise end to end.

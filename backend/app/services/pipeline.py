@@ -56,6 +56,8 @@ class LocalPipeline:
         self.store.update_status(job_id, JobStatus.running, progress=0.0)
         try:
             total = len(job.segments)
+            if isinstance(self.generator, WanVideoGenerator):
+                self.generator.fit_scene_count(total)
             for index, segment in enumerate(job.segments, start=1):
                 if self.progress_callback:
                     self.progress_callback(
