@@ -1,6 +1,7 @@
 from backend.app.models.jobs import SegmentRequest
 from backend.app.services.wan_video import WanVideoGenerator
 from backend.app.services.keyframe_motion import CudaKeyframeMotionGenerator
+from backend.app.services.simple_character_rig import SimpleCharacterRig
 
 
 def test_wan_defaults_to_portrait_output(monkeypatch, tmp_path) -> None:
@@ -166,3 +167,21 @@ def test_layered_keyframe_assets_are_discovered_as_one_scene_bundle(tmp_path) ->
         background, character,
     )
     assert CudaKeyframeMotionGenerator.has_layered_assets(segment)
+
+
+def test_simple_character_rig_has_one_stable_identity_and_distinct_poses(tmp_path) -> None:
+    config = tmp_path / "simple_character.json"
+    config.write_text('{"shirt":"#F3C62F","boots":"#D8443E"}', encoding="utf-8")
+    rig = SimpleCharacterRig(config, 160, 288)
+    standing = rig.render(scene=3, progress=0.0)
+    jumping = rig.render(scene=2, progress=0.5)
+    pointing_start = rig.render(scene=4, progress=0.0)
+    pointing_end = rig.render(scene=4, progress=1.0)
+
+    assert standing.mode == "RGBA"
+    assert standing.size == (160, 288)
+    assert standing.getbbox() != jumping.getbbox()
+    assert pointing_start.tobytes() != pointing_end.tobytes()
+    reference = tmp_path / "reference.png"
+    rig.save_reference(reference)
+    assert reference.is_file()

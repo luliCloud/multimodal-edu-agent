@@ -97,6 +97,7 @@ def render_script_with_progress(plan: ShortPlan, backend: str, output_dir: Path,
         layered = [number for number in selected
                    if (frames_dir / f"scene_{number:02d}_background.png").is_file()
                    and (frames_dir / f"scene_{number:02d}_character.png").is_file()]
+        rig_enabled = (frames_dir / "simple_character.json").is_file()
         print(
             f"[video] scene keyframes: {len(found)}/{len(selected)} found in "
             f"{frames_dir.resolve()}; scenes {found}",
@@ -107,6 +108,7 @@ def render_script_with_progress(plan: ShortPlan, backend: str, output_dir: Path,
             f"scenes {layered}",
             flush=True,
         )
+        print(f"[video] articulated simple character rig: {rig_enabled}", flush=True)
     if backend == "wan":
         fps = int(os.getenv("WAN_FPS", "9"))
         frames = int(os.getenv(

@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 from backend.app.models.jobs import SegmentRequest, VideoArtifact
+from backend.app.services.simple_character_rig import SimpleCharacterRig
 
 
 class CudaKeyframeMotionGenerator:
@@ -211,6 +212,53 @@ class CudaKeyframeMotionGenerator:
                 frame = frame * (1 - sparkle.unsqueeze(0) * 0.7) + sparkle.unsqueeze(0) * 0.7
         return frame.clamp(0, 1)
 
+    def _simple_rig_frame(self, torch, background, rig, scene, progress, xx, yy):
+        import numpy as np
+
+        rendered = rig.render(scene, progress)
+        character = torch.from_numpy(np.asarray(rendered).copy()).to(
+            device=background.device, dtype=torch.float32
+        ).permute(2, 0, 1) / 255.0
+        scene_background = background
+        if scene == 4:
+            saturation = background.max(dim=0).values - background.min(dim=0).values
+            mask = (saturation > 0.24).float() * (yy < self.height * 0.39).float()
+            value = min(1.0, progress / 0.68)
+            visibility = value * value * (3 - 2 * value)
+            sky = torch.tensor((0.62, 0.82, 0.96), device=background.device).view(3, 1, 1)
+            hidden = mask.unsqueeze(0) * (1 - visibility) * 0.88
+            scene_background = background * (1 - hidden) + sky * hidden
+        alpha = character[3:4]
+        frame = scene_background * (1 - alpha) + character[:3] * alpha
+
+        if scene == 1:
+            storm = min(0.10, progress * 0.14)
+            window = ((xx > self.width * 0.48) & (yy < self.height * 0.68)).float()
+            gray = torch.tensor((0.42, 0.52, 0.60), device=frame.device).view(3, 1, 1)
+            frame = frame * (1 - window.unsqueeze(0) * storm) + gray * window.unsqueeze(0) * storm
+        elif scene == 2:
+            landing = max(0.0, (progress - 0.74) / 0.26)
+            if landing > 0:
+                radius_x, radius_y = 18 + landing * 72, 5 + landing * 17
+                distance = torch.abs(
+                    ((xx - self.width * 0.5) / radius_x) ** 2
+                    + ((yy - self.height * 0.79) / radius_y) ** 2 - 1
+                )
+                ring = (1 - distance * 20).clamp(0, 1) * (1 - landing) * 0.75
+                water = torch.tensor((0.86, 0.96, 1.0), device=frame.device).view(3, 1, 1)
+                frame = frame * (1 - ring.unsqueeze(0)) + water * ring.unsqueeze(0)
+        elif scene == 3:
+            warmth = 0.04 + 0.08 * progress
+            glow = torch.tensor((1.0, 0.86, 0.48), device=frame.device).view(3, 1, 1)
+            frame = frame * (1 - warmth) + glow * warmth
+        elif scene == 4:
+            for offset in (0.0, 0.33, 0.66):
+                phase = (progress + offset) % 1.0
+                cx, cy = self.width * (0.54 + 0.34 * phase), self.height * (0.36 - 0.22 * phase)
+                sparkle = (((xx - cx) ** 2 + (yy - cy) ** 2) < 16).float()
+                frame = frame * (1 - sparkle.unsqueeze(0) * 0.65) + sparkle.unsqueeze(0) * 0.65
+        return frame.clamp(0, 1)
+
     def generate(self, segment_id: str, segment: SegmentRequest, gpu_id: int) -> VideoArtifact:
         import imageio_ffmpeg
         import numpy as np
@@ -228,9 +276,16 @@ class CudaKeyframeMotionGenerator:
 
         device = torch.device(f"cuda:{gpu_id}")
         layered = self.has_layered_assets(segment)
+        simple_rig = layered and SimpleCharacterRig.available(path)
         if layered:
             background, foreground, scene = self._load_layers(path, device)
             image = None
+            rig = None
+            if simple_rig:
+                rig = SimpleCharacterRig(
+                    SimpleCharacterRig.config_for_keyframe(path), self.width, self.height
+                )
+                rig.save_reference(path.parent / "simple_character_reference.png")
         else:
             with Image.open(path) as source:
                 fitted = ImageOps.fit(
@@ -252,7 +307,11 @@ class CudaKeyframeMotionGenerator:
         with torch.inference_mode():
             for index in range(self.num_frames):
                 progress = index / max(self.num_frames - 1, 1)
-                if layered:
+                if simple_rig:
+                    frame = self._simple_rig_frame(
+                        torch, background, rig, scene, progress, xx, yy
+                    )
+                elif layered:
                     frame = self._layered_frame(
                         torch, functional, background, foreground, scene, progress, xx, yy
                     )

@@ -103,6 +103,14 @@ an expanding landing ripple, while the other scenes use character sway, moving r
 sunlight changes, and rainbow highlights. If a scene has no layers, it falls back to the
 whole-keyframe camera move.
 
+For larger actions without identity drift, add `simple_character.json` to the assets
+directory. Its color fields (`skin`, `hair`, `eyes`, `shirt`, `pants`, `boots`, `outline`,
+and `clip`) define one reusable articulated child. The renderer writes
+`simple_character_reference.png` and uses the same head and body geometry in every scene.
+Rounded overlapping joints support waving, blinking, anticipation, jumping, bent-knee
+landing, looking up, and pointing without cutting a painted character into pieces. The
+simple rig takes precedence over extracted character layers when its config is present.
+
 Both commands generate the selected scene clips and one `*-combined.mp4` under the script's
 `videos/` directory, then copy the combined result to the stable path
 `storage/demo/after_the_rain/final.mp4`. Use `--scene 1` to render one reviewed scene as
