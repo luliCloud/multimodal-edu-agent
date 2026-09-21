@@ -81,33 +81,108 @@ class CudaKeyframeMotionGenerator:
 
     def _layered_frame(self, torch, functional, background, foreground,
                        scene: int, progress: float, xx, yy):
-        cycle = math.sin(progress * math.tau)
+        def ease(value: float) -> float:
+            value = max(0.0, min(1.0, value))
+            return value * value * (3.0 - 2.0 * value)
+
+        def rotate_part(source, region, pivot_x, pivot_y, angle):
+            """Rotate one body region around a joint while keeping the torso fixed."""
+            cosine, sine = math.cos(angle), math.sin(angle)
+            dx, dy = xx - pivot_x, yy - pivot_y
+            input_x = cosine * dx + sine * dy + pivot_x
+            input_y = -sine * dx + cosine * dy + pivot_y
+            grid = torch.stack((
+                input_x / max(self.width - 1, 1) * 2 - 1,
+                input_y / max(self.height - 1, 1) * 2 - 1,
+            ), dim=-1).unsqueeze(0)
+            part = source * region
+            moved = functional.grid_sample(
+                part.unsqueeze(0), grid, mode="bilinear", padding_mode="zeros",
+                align_corners=True,
+            )[0]
+            moved_region = functional.grid_sample(
+                region.unsqueeze(0), grid, mode="bilinear", padding_mode="zeros",
+                align_corners=True,
+            )[0]
+            return (source * (1 - region) + moved * moved_region).clamp(0, 1)
+
+        animated = foreground
         if scene == 2:
-            # One visible jump arc: rise, hang briefly, and land back over the puddle.
-            dy = -34.0 * math.sin(progress * math.pi)
-            dx = 5.0 * math.sin(progress * math.tau)
-            angle = 0.035 * cycle
-        else:
-            dy = 3.0 * cycle
-            dx = 2.5 * math.sin(progress * math.tau + scene)
-            angle = 0.012 * cycle * (-1 if scene == 4 else 1)
-        cosine, sine = math.cos(angle), math.sin(angle)
-        theta = torch.tensor(
-            [[[cosine, -sine, -2.0 * dx / self.width],
-              [sine, cosine, -2.0 * dy / self.height]]],
-            device=background.device, dtype=torch.float32,
-        )
-        source = foreground.unsqueeze(0)
-        grid = functional.affine_grid(theta, source.shape, align_corners=False)
-        moved = functional.grid_sample(
-            source, grid, mode="bilinear", padding_mode="zeros", align_corners=False
-        )[0]
-        alpha = moved[3:4].clamp(0, 1)
-        frame = background * (1 - alpha) + moved[:3] * alpha
+            # Anticipation -> takeoff -> airborne arc -> landing squash.
+            if progress < 0.16:
+                amount = math.sin(progress / 0.16 * math.pi / 2)
+                scale_x, scale_y, dy = 1 + 0.08 * amount, 1 - 0.09 * amount, 12 * amount
+            elif progress < 0.78:
+                flight = (progress - 0.16) / 0.62
+                jump = math.sin(flight * math.pi)
+                scale_x, scale_y, dy = 1 - 0.025 * jump, 1 + 0.035 * jump, -72 * jump
+            else:
+                impact = math.sin((progress - 0.78) / 0.22 * math.pi)
+                scale_x, scale_y, dy = 1 + 0.10 * impact, 1 - 0.12 * impact, 14 * impact
+            dx = 0.0
+            angle = 0.0
+            cosine, sine = 1.0, 0.0
+            theta = torch.tensor(
+                [[[cosine / scale_x, -sine, -2.0 * dx / self.width],
+                  [sine, cosine / scale_y, -2.0 * dy / self.height]]],
+                device=background.device, dtype=torch.float32,
+            )
+            source = animated.unsqueeze(0)
+            grid = functional.affine_grid(theta, source.shape, align_corners=False)
+            animated = functional.grid_sample(
+                source, grid, mode="bilinear", padding_mode="zeros", align_corners=False
+            )[0]
+        elif scene == 1:
+            # Two small waves at the wrist/raised arm; feet and torso remain stationary.
+            wave = 0.12 * math.sin(progress * math.tau * 2)
+            region = (
+                (xx > self.width * 0.56)
+                & (yy > self.height * 0.16)
+                & (yy < self.height * 0.56)
+            ).float().unsqueeze(0)
+            animated = rotate_part(
+                animated, region, self.width * 0.58, self.height * 0.38, wave
+            )
+        elif scene == 3:
+            # Mia deliberately raises her gaze as the sunlight returns.
+            head_lift = -0.065 * ease(progress / 0.55)
+            region = (
+                (yy < self.height * 0.38)
+                & (xx > self.width * 0.20)
+                & (xx < self.width * 0.80)
+            ).float().unsqueeze(0)
+            animated = rotate_part(
+                animated, region, self.width * 0.50, self.height * 0.38, head_lift
+            )
+        scene_background = background
+        if scene == 4:
+            # Reveal the colorful arc while the reviewed pointing pose stays intact.
+            saturation = background.max(dim=0).values - background.min(dim=0).values
+            upper_sky = (yy < self.height * 0.39).float()
+            rainbow_mask = (saturation > 0.24).float() * upper_sky
+            visibility = ease(progress / 0.68)
+            sky = torch.tensor(
+                (0.62, 0.82, 0.96), device=background.device
+            ).view(3, 1, 1)
+            hidden = rainbow_mask.unsqueeze(0) * (1.0 - visibility) * 0.88
+            scene_background = background * (1 - hidden) + sky * hidden
+
+        alpha = animated[3:4].clamp(0, 1)
+        frame = scene_background * (1 - alpha) + animated[:3] * alpha
 
         if scene == 2:
+            # A grounded shadow shrinks during flight and expands again on landing.
+            airborne = max(0.0, -dy / 72.0)
+            shadow_rx = 37.0 - 18.0 * airborne
+            shadow_ry = 8.0 - 4.0 * airborne
+            shadow_distance = (
+                ((xx - self.width * 0.5) / shadow_rx) ** 2
+                + ((yy - self.height * 0.865) / shadow_ry) ** 2
+            )
+            shadow = (1.0 - shadow_distance).clamp(0, 1) * (0.24 - 0.10 * airborne)
+            frame = frame * (1 - shadow.unsqueeze(0))
             # Animated concentric ripples make the landing read as an action.
-            landing = max(0.0, (progress - 0.55) / 0.45)
+            landing = max(0.0, (progress - 0.76) / 0.24)
             if landing > 0:
                 radius_x = 18.0 + landing * 72.0
                 radius_y = 5.0 + landing * 17.0
