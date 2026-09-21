@@ -72,6 +72,10 @@ python -m backend.scripts.render_short_script \
 
 Both commands generate four scene clips and one `*-combined.mp4` under the script's
 `videos/` directory. Use `--scene 1` to render one reviewed scene as a cheaper smoke test.
+The CLI prints the validated title, backend, selected scenes, Wan settings, each scene's
+start and output path, and the final assembly step. During a blocking model call it also
+prints an elapsed-time heartbeat every 15 seconds, so model loading and inference are
+visibly different from a stopped process.
 
 Run both stages with one command when no manual review is needed:
 

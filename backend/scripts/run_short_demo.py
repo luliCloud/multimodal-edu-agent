@@ -5,7 +5,7 @@ from pathlib import Path
 
 from backend.app.models.shorts import ShortPlan
 from backend.scripts.plan_short_pdf import create_script_bundle, default_output_dir
-from backend.scripts.render_short_script import render_script
+from backend.scripts.render_short_script import render_script_with_progress
 
 
 def main() -> None:
@@ -21,7 +21,7 @@ def main() -> None:
     print("image prompts:", prompt_path, flush=True)
     print("stage 2/2: script -> video", flush=True)
     plan = ShortPlan.model_validate_json(script_path.read_text(encoding="utf-8"))
-    job = render_script(plan, args.backend, output_dir / "videos")
+    job = render_script_with_progress(plan, args.backend, output_dir / "videos")
     print("status:", job.status.value, flush=True)
     for video in job.videos:
         print("video:", Path(video.path).resolve(), flush=True)
