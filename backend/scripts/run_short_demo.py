@@ -21,7 +21,10 @@ def main() -> None:
     print("image prompts:", prompt_path, flush=True)
     print("stage 2/2: script -> video", flush=True)
     plan = ShortPlan.model_validate_json(script_path.read_text(encoding="utf-8"))
-    job = render_script_with_progress(plan, args.backend, output_dir / "videos")
+    job = render_script_with_progress(
+        plan, args.backend, output_dir / "videos",
+        final_output=output_dir / "final.mp4",
+    )
     print("status:", job.status.value, flush=True)
     for video in job.videos:
         print("video:", Path(video.path).resolve(), flush=True)

@@ -71,7 +71,9 @@ python -m backend.scripts.render_short_script \
 ```
 
 Both commands generate four scene clips and one `*-combined.mp4` under the script's
-`videos/` directory. Use `--scene 1` to render one reviewed scene as a cheaper smoke test.
+`videos/` directory, then copy the combined result to the stable path
+`storage/demo/after_the_rain/final.mp4`. Use `--scene 1` to render one reviewed scene as
+a cheaper smoke test; that single clip is also published as `final.mp4`.
 The CLI prints the validated title, backend, selected scenes, Wan settings, each scene's
 start and output path, and the final assembly step. During a blocking model call it also
 prints an elapsed-time heartbeat every 15 seconds, so model loading and inference are

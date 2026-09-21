@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import shutil
 import threading
 import time
 from contextlib import contextmanager
@@ -46,8 +47,29 @@ def generation_heartbeat(interval_seconds: float = 15.0) -> Iterator[None]:
         thread.join(timeout=1)
 
 
+def publish_final_video(job, final_output: Path) -> Path | None:
+    """Copy a combined video, or a single selected scene, to a stable demo path."""
+    if job.status.value != "completed":
+        return None
+    scene_videos = [video for video in job.videos if video.media_type == "video/mp4"]
+    combined = next(
+        (video for video in reversed(scene_videos)
+         if video.segment_id.endswith("-combined")),
+        None,
+    )
+    source = combined or (scene_videos[0] if len(scene_videos) == 1 else None)
+    if source is None:
+        return None
+    final_output.parent.mkdir(parents=True, exist_ok=True)
+    if Path(source.path).resolve() != final_output.resolve():
+        shutil.copy2(source.path, final_output)
+    print(f"[video] final video -> {final_output.resolve()}", flush=True)
+    return final_output
+
+
 def render_script_with_progress(plan: ShortPlan, backend: str, output_dir: Path,
-                                scene_numbers: list[int] | None = None):
+                                scene_numbers: list[int] | None = None,
+                                final_output: Path | None = None):
     selected = scene_numbers or [scene.scene for scene in plan.scenes]
     print(f"[video] script validated: {plan.title}", flush=True)
     print(f"[video] backend: {backend}; scenes: {selected}", flush=True)
@@ -61,10 +83,13 @@ def render_script_with_progress(plan: ShortPlan, backend: str, output_dir: Path,
             flush=True,
         )
     with generation_heartbeat():
-        return render_script(
+        job = render_script(
             plan, backend, output_dir, scene_numbers,
             progress_callback=lambda message: print(f"[video] {message}", flush=True),
         )
+    if final_output is not None:
+        publish_final_video(job, final_output)
+    return job
 
 
 def main() -> None:
@@ -74,12 +99,17 @@ def main() -> None:
     parser.add_argument("script", type=Path)
     parser.add_argument("--backend", choices=("mock", "cuda_probe", "wan"), default="mock")
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--final-output", type=Path,
+                        help="Stable path for the final MP4 (default: beside script.json)")
     parser.add_argument("--scene", type=int, action="append",
                         help="Render only this scene number; repeat for multiple scenes")
     args = parser.parse_args()
     plan = ShortPlan.model_validate_json(args.script.read_text(encoding="utf-8"))
     output_dir = args.output_dir or args.script.parent / "videos"
-    job = render_script_with_progress(plan, args.backend, output_dir, args.scene)
+    final_output = args.final_output or args.script.parent / "final.mp4"
+    job = render_script_with_progress(
+        plan, args.backend, output_dir, args.scene, final_output,
+    )
     print("backend:", args.backend)
     print("status:", job.status.value)
     if job.error:
