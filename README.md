@@ -111,6 +111,12 @@ Rounded overlapping joints support waving, blinking, anticipation, jumping, bent
 landing, looking up, and pointing without cutting a painted character into pieces. The
 simple rig takes precedence over extracted character layers when its config is present.
 
+For a polished character, provide transparent `rig_*.png` sprites for the head, torso,
+upper arms, forearms, thighs, and lower legs. The renderer assembles these painted parts
+on the same articulated skeleton, removes disconnected crop fragments, and preserves the
+face and clothes exactly while animating scene-specific gestures. A complete polished rig
+takes precedence over `simple_character.json`; the geometric rig remains the fallback.
+
 Both commands generate the selected scene clips and one `*-combined.mp4` under the script's
 `videos/` directory, then copy the combined result to the stable path
 `storage/demo/after_the_rain/final.mp4`. Use `--scene 1` to render one reviewed scene as

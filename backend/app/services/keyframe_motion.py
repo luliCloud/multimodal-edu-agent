@@ -8,6 +8,7 @@ from pathlib import Path
 
 from backend.app.models.jobs import SegmentRequest, VideoArtifact
 from backend.app.services.simple_character_rig import SimpleCharacterRig
+from backend.app.services.sprite_character_rig import PolishedSpriteRig
 
 
 class CudaKeyframeMotionGenerator:
@@ -276,12 +277,15 @@ class CudaKeyframeMotionGenerator:
 
         device = torch.device(f"cuda:{gpu_id}")
         layered = self.has_layered_assets(segment)
-        simple_rig = layered and SimpleCharacterRig.available(path)
+        polished_rig = layered and PolishedSpriteRig.available(path.parent)
+        simple_rig = layered and not polished_rig and SimpleCharacterRig.available(path)
         if layered:
             background, foreground, scene = self._load_layers(path, device)
             image = None
             rig = None
-            if simple_rig:
+            if polished_rig:
+                rig = PolishedSpriteRig(path.parent, self.width, self.height)
+            elif simple_rig:
                 rig = SimpleCharacterRig(
                     SimpleCharacterRig.config_for_keyframe(path), self.width, self.height
                 )
@@ -307,7 +311,7 @@ class CudaKeyframeMotionGenerator:
         with torch.inference_mode():
             for index in range(self.num_frames):
                 progress = index / max(self.num_frames - 1, 1)
-                if simple_rig:
+                if polished_rig or simple_rig:
                     frame = self._simple_rig_frame(
                         torch, background, rig, scene, progress, xx, yy
                     )

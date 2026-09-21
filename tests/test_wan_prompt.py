@@ -2,6 +2,7 @@ from backend.app.models.jobs import SegmentRequest
 from backend.app.services.wan_video import WanVideoGenerator
 from backend.app.services.keyframe_motion import CudaKeyframeMotionGenerator
 from backend.app.services.simple_character_rig import SimpleCharacterRig
+from backend.app.services.sprite_character_rig import PolishedSpriteRig
 
 
 def test_wan_defaults_to_portrait_output(monkeypatch, tmp_path) -> None:
@@ -185,3 +186,26 @@ def test_simple_character_rig_has_one_stable_identity_and_distinct_poses(tmp_pat
     reference = tmp_path / "reference.png"
     rig.save_reference(reference)
     assert reference.is_file()
+
+
+def test_polished_sprite_rig_assembles_parts_and_changes_pose(tmp_path) -> None:
+    from PIL import Image, ImageDraw
+
+    for index, name in enumerate(PolishedSpriteRig.PARTS):
+        part = Image.new("RGBA", (36, 72), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(part)
+        draw.rounded_rectangle(
+            (5, 3, 30, 68), radius=8,
+            fill=(80 + index * 10, 130, 190, 255),
+        )
+        part.save(tmp_path / f"rig_{name}.png")
+
+    assert PolishedSpriteRig.available(tmp_path)
+    rig = PolishedSpriteRig(tmp_path, 320, 576)
+    neutral = rig.render(scene=3, progress=0.4)
+    pointing = rig.render(scene=4, progress=0.8)
+
+    assert neutral.mode == "RGBA"
+    assert neutral.size == (320, 576)
+    assert neutral.getbbox() is not None
+    assert neutral.tobytes() != pointing.tobytes()
