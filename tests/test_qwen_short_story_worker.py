@@ -73,13 +73,20 @@ def test_retries_with_specific_grounding_error() -> None:
     payload["scenes"][2]["action"] = "A bicycle crosses the street"
     answers = iter([json.dumps(payload), json.dumps(_payload())])
     seen = []
+    progress = []
 
     def generate(messages):
         seen.append(messages[-1]["content"])
         return next(answers)
 
-    plan_with_retries(generate, build_messages(SENTENCES, GROUPS), SENTENCES, GROUPS, 3)
+    plan_with_retries(
+        generate, build_messages(SENTENCES, GROUPS), SENTENCES, GROUPS, 3,
+        progress.append,
+    )
     assert "scene 3 action is not grounded" in seen[1]
+    assert progress[0] == "generation attempt 1/3 started"
+    assert any(message.startswith("validation failed:") for message in progress)
+    assert progress[-1] == "script validation passed"
 
 
 def test_rejects_narration_over_scene_budget() -> None:

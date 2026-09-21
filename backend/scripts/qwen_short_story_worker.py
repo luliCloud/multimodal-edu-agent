@@ -195,14 +195,24 @@ def parse_short_plan(text: str, sentences: list[dict],
 
 def plan_with_retries(generate: Callable[[list[dict]], str], messages: list[dict],
                       sentences: list[dict], groups: list[list[int]],
-                      max_attempts: int) -> ShortPlanDraft:
+                      max_attempts: int,
+                      progress: Callable[[str], None] | None = None) -> ShortPlanDraft:
     last_error: Exception | None = None
-    for _ in range(max_attempts):
+    for attempt in range(1, max_attempts + 1):
+        if progress:
+            progress(f"generation attempt {attempt}/{max_attempts} started")
         answer = generate(messages)
+        if progress:
+            progress(f"generation attempt {attempt}/{max_attempts} finished; validating JSON")
         try:
-            return parse_short_plan(answer, sentences, groups)
+            draft = parse_short_plan(answer, sentences, groups)
+            if progress:
+                progress("script validation passed")
+            return draft
         except ValueError as error:
             last_error = error
+            if progress:
+                progress(f"validation failed: {error}; retrying")
             messages.append({"role": "assistant", "content": answer})
             messages.append({"role": "user", "content": corrective_feedback(error)})
     raise StoryPlanningError(
@@ -212,7 +222,15 @@ def plan_with_retries(generate: Callable[[list[dict]], str], messages: list[dict
 
 def main() -> None:
     import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import (
+        AutoModelForCausalLM,
+        AutoTokenizer,
+        StoppingCriteria,
+        StoppingCriteriaList,
+    )
+
+    def progress(message: str) -> None:
+        print(f"[planner] {message}", file=sys.stderr, flush=True)
 
     gpu_id = int(sys.argv[1])
     if not torch.cuda.is_available():
@@ -222,26 +240,55 @@ def main() -> None:
     groups = request["scene_groups"]
     model_id = os.getenv("PLANNER_MODEL_ID", "Qwen/Qwen3-4B-Instruct-2507")
     max_attempts = int(os.getenv("PLANNER_MAX_ATTEMPTS", DEFAULT_MAX_ATTEMPTS))
+    progress(f"CUDA is available; using GPU {gpu_id}")
+    progress(f"loading tokenizer: {model_id}")
     tokenizer = AutoTokenizer.from_pretrained(model_id)
+    progress(f"loading model weights: {model_id}")
     model = AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.bfloat16)
+    progress(f"moving model to cuda:{gpu_id}")
     model.to(f"cuda:{gpu_id}").eval()
+    progress("model loaded and ready")
     template_options = {"enable_thinking": False} if model_id == "Qwen/Qwen3-1.7B" else {}
+
+    class TokenProgress(StoppingCriteria):
+        def __init__(self, input_length: int, maximum: int) -> None:
+            self.input_length = input_length
+            self.maximum = maximum
+            self.next_report = 100
+
+        def __call__(self, input_ids, scores, **kwargs) -> bool:
+            generated = input_ids.shape[-1] - self.input_length
+            if generated >= self.next_report:
+                progress(f"generated {generated}/{self.maximum} maximum response tokens")
+                self.next_report += 100
+            return False
 
     def generate(messages: list[dict]) -> str:
         prompt = tokenizer.apply_chat_template(messages, tokenize=False,
                                                add_generation_prompt=True, **template_options)
         inputs = tokenizer([prompt], return_tensors="pt").to(model.device)
+        maximum = 1400
         with torch.inference_mode():
-            output = model.generate(**inputs, max_new_tokens=1400, do_sample=False)
+            output = model.generate(
+                **inputs,
+                max_new_tokens=maximum,
+                do_sample=False,
+                stopping_criteria=StoppingCriteriaList([
+                    TokenProgress(inputs.input_ids.shape[-1], maximum)
+                ]),
+            )
         return tokenizer.decode(output[0][inputs.input_ids.shape[-1]:],
                                 skip_special_tokens=True).strip()
 
     try:
         draft = plan_with_retries(
-            generate, build_messages(sentences, groups), sentences, groups, max_attempts
+            generate, build_messages(sentences, groups), sentences, groups, max_attempts,
+            progress,
         )
     except StoryPlanningError as error:
+        print(json.dumps({"planner_error": str(error)}))
         raise SystemExit(str(error)) from error
+    progress("planner complete; returning validated script")
     print(draft.model_dump_json())
 
 

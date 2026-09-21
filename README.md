@@ -53,6 +53,10 @@ storage/demo/after_the_rain/image_prompts.json
 
 Review `summary`, `character`, `style`, the four `scenes`, narration, outfits and states
 in `script.json` before spending GPU time on video.
+While Qwen runs, the CLI reports tokenizer and model loading, generation attempts,
+generated-token milestones every 100 tokens, validation failures and retries, and final
+schema success. Run the planner and Wan sequentially on a 16 GB GPU; starting both at
+once can exhaust GPU memory.
 
 ### Stage 2: Reviewed Script to Video
 

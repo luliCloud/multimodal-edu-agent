@@ -125,14 +125,26 @@ def plan_short_story(pages: list[str], title: str) -> ShortPlan:
     groups = four_scene_groups(sentences)
 
     def run_worker(gpu_id: int) -> dict:
+        print(
+            f"[planner] launching Qwen worker on GPU {gpu_id} for "
+            f"{len(sentences)} source sentences",
+            file=sys.stderr,
+            flush=True,
+        )
         result = subprocess.run(
             [sys.executable, "-m", "backend.scripts.qwen_short_story_worker", str(gpu_id)],
             input=json.dumps({"sentences": sentences, "scene_groups": groups}),
-            text=True, capture_output=True, timeout=600, check=False,
+            text=True, stdout=subprocess.PIPE, timeout=600, check=False,
             env=_worker_env(),
         )
         if result.returncode:
-            raise StoryPlanningError(f"Short planner failed: {result.stderr[-1000:]}")
+            detail = f"worker exited with code {result.returncode}"
+            try:
+                error_payload = json.loads(result.stdout)
+                detail = error_payload.get("planner_error", detail)
+            except (json.JSONDecodeError, AttributeError):
+                pass
+            raise StoryPlanningError(f"Short planner failed: {detail}")
         try:
             return json.loads(result.stdout)
         except json.JSONDecodeError as exc:
