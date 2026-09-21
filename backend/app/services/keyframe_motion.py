@@ -132,17 +132,6 @@ class CudaKeyframeMotionGenerator:
             animated = functional.grid_sample(
                 source, grid, mode="bilinear", padding_mode="zeros", align_corners=False
             )[0]
-        elif scene == 1:
-            # Two small waves at the wrist/raised arm; feet and torso remain stationary.
-            wave = 0.12 * math.sin(progress * math.tau * 2)
-            region = (
-                (xx > self.width * 0.56)
-                & (yy > self.height * 0.16)
-                & (yy < self.height * 0.56)
-            ).float().unsqueeze(0)
-            animated = rotate_part(
-                animated, region, self.width * 0.58, self.height * 0.38, wave
-            )
         elif scene == 3:
             # Mia deliberately raises her gaze as the sunlight returns.
             head_lift = -0.065 * ease(progress / 0.55)
@@ -170,7 +159,19 @@ class CudaKeyframeMotionGenerator:
         alpha = animated[3:4].clamp(0, 1)
         frame = scene_background * (1 - alpha) + animated[:3] * alpha
 
-        if scene == 2:
+        if scene == 1:
+            # Keep Mia's painted character layer intact. The storm develops outside the
+            # window without cutting or warping her raised arm.
+            storm = 0.10 * ease(progress / 0.72)
+            cool_gray = torch.tensor(
+                (0.42, 0.52, 0.60), device=frame.device
+            ).view(3, 1, 1)
+            window = (
+                (xx > self.width * 0.48)
+                & (yy < self.height * 0.68)
+            ).float().unsqueeze(0)
+            frame = frame * (1 - window * storm) + cool_gray * window * storm
+        elif scene == 2:
             # A grounded shadow shrinks during flight and expands again on landing.
             airborne = max(0.0, -dy / 72.0)
             shadow_rx = 37.0 - 18.0 * airborne
