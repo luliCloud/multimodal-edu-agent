@@ -3,6 +3,7 @@ from backend.app.services.wan_video import WanVideoGenerator
 from backend.app.services.keyframe_motion import CudaKeyframeMotionGenerator
 from backend.app.services.simple_character_rig import SimpleCharacterRig
 from backend.app.services.sprite_character_rig import PolishedSpriteRig
+from backend.app.services.whole_character_motion import WholeCharacterPoseAnimator
 
 
 def test_wan_defaults_to_portrait_output(monkeypatch, tmp_path) -> None:
@@ -209,3 +210,27 @@ def test_polished_sprite_rig_assembles_parts_and_changes_pose(tmp_path) -> None:
     assert neutral.size == (320, 576)
     assert neutral.getbbox() is not None
     assert neutral.tobytes() != pointing.tobytes()
+
+
+def test_whole_character_animator_uses_one_complete_pose_per_frame(tmp_path) -> None:
+    from PIL import Image, ImageDraw
+
+    sheet = Image.new("RGBA", (300, 200), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(sheet)
+    for index in range(6):
+        x = (index % 3) * 100
+        y = (index // 3) * 100
+        draw.rounded_rectangle(
+            (x + 30, y + 8, x + 70, y + 92), radius=15,
+            fill=(70 + index * 20, 130, 190, 255),
+        )
+    sheet.save(tmp_path / WholeCharacterPoseAnimator.SHEET_NAME)
+
+    animator = WholeCharacterPoseAnimator(tmp_path, 160, 288)
+    crouch = animator.render(scene=2, progress=0.1)
+    airborne = animator.render(scene=2, progress=0.45)
+
+    assert WholeCharacterPoseAnimator.available(tmp_path)
+    assert crouch.mode == "RGBA"
+    assert crouch.size == (160, 288)
+    assert crouch.tobytes() != airborne.tobytes()

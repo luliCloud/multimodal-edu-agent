@@ -117,6 +117,12 @@ on the same articulated skeleton, removes disconnected crop fragments, and prese
 face and clothes exactly while animating scene-specific gestures. A complete polished rig
 takes precedence over `simple_character.json`; the geometric rig remains the fallback.
 
+For the highest visual quality, provide `full_pose_sheet.png` as a transparent 3-by-2
+sheet containing six complete character drawings: gesture, crouch, airborne jump,
+landing, looking up, and pointing. The animator renders one cohesive full body per frame,
+so shoulders, elbows, hips, and knees are never assembled from separate pieces. This mode
+takes precedence over both articulated rigs.
+
 Both commands generate the selected scene clips and one `*-combined.mp4` under the script's
 `videos/` directory, then copy the combined result to the stable path
 `storage/demo/after_the_rain/final.mp4`. Use `--scene 1` to render one reviewed scene as

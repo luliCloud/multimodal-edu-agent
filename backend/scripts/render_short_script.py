@@ -15,6 +15,7 @@ from backend.app.services.job_store import InMemoryJobStore
 from backend.app.services.pipeline import LocalPipeline
 from backend.app.services.script_video import upload_request_from_script
 from backend.app.services.sprite_character_rig import PolishedSpriteRig
+from backend.app.services.whole_character_motion import WholeCharacterPoseAnimator
 from backend.app.services.wan_video import WanVideoGenerator
 
 
@@ -98,6 +99,7 @@ def render_script_with_progress(plan: ShortPlan, backend: str, output_dir: Path,
         layered = [number for number in selected
                    if (frames_dir / f"scene_{number:02d}_background.png").is_file()
                    and (frames_dir / f"scene_{number:02d}_character.png").is_file()]
+        whole_character = WholeCharacterPoseAnimator.available(frames_dir)
         polished_rig = PolishedSpriteRig.available(frames_dir)
         simple_rig = (frames_dir / "simple_character.json").is_file()
         print(
@@ -110,8 +112,10 @@ def render_script_with_progress(plan: ShortPlan, backend: str, output_dir: Path,
             f"scenes {layered}",
             flush=True,
         )
-        print(f"[video] polished articulated character rig: {polished_rig}", flush=True)
-        if not polished_rig:
+        print(f"[video] cohesive full-body pose animation: {whole_character}", flush=True)
+        if not whole_character:
+            print(f"[video] polished articulated character rig: {polished_rig}", flush=True)
+        if not whole_character and not polished_rig:
             print(f"[video] simple character rig fallback: {simple_rig}", flush=True)
     if backend == "wan":
         fps = int(os.getenv("WAN_FPS", "9"))
