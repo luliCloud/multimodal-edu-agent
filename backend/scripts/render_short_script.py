@@ -94,9 +94,17 @@ def render_script_with_progress(plan: ShortPlan, backend: str, output_dir: Path,
         frames_dir = keyframe_dir or character_reference.parent
         found = [number for number in selected
                  if (frames_dir / f"scene_{number:02d}_keyframe.png").is_file()]
+        layered = [number for number in selected
+                   if (frames_dir / f"scene_{number:02d}_background.png").is_file()
+                   and (frames_dir / f"scene_{number:02d}_character.png").is_file()]
         print(
             f"[video] scene keyframes: {len(found)}/{len(selected)} found in "
             f"{frames_dir.resolve()}; scenes {found}",
+            flush=True,
+        )
+        print(
+            f"[video] layered animation assets: {len(layered)}/{len(selected)}; "
+            f"scenes {layered}",
             flush=True,
         )
     if backend == "wan":

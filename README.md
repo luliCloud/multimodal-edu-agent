@@ -95,6 +95,14 @@ between frames. Set `WAN_KEYFRAME_MOTION=vace` for a learned-motion comparison. 
 produce larger character motion, but the 1.3B checkpoint may drift from the reference;
 the stable mode is the consistency-first default for the single-GPU prototype.
 
+For actual layered motion, add `scene_01_background.png` and
+`scene_01_character.png` beside `scene_01_keyframe.png` (and the matching files for each
+scene). Character PNGs must have a real alpha channel. The CUDA compositor then moves the
+character independently of the background: the puddle scene follows a jump arc and adds
+an expanding landing ripple, while the other scenes use character sway, moving rain,
+sunlight changes, and rainbow highlights. If a scene has no layers, it falls back to the
+whole-keyframe camera move.
+
 Both commands generate the selected scene clips and one `*-combined.mp4` under the script's
 `videos/` directory, then copy the combined result to the stable path
 `storage/demo/after_the_rain/final.mp4`. Use `--scene 1` to render one reviewed scene as

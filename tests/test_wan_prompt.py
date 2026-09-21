@@ -153,3 +153,16 @@ def test_keyframe_weather_overlay_does_not_treat_rainbow_or_clearing_as_rain() -
     assert not CudaKeyframeMotionGenerator.uses_rain_overlay(SegmentRequest(
         text="A rainbow appears.", visual_prompt="Weather: sunny. Action: Mia points."
     ))
+
+
+def test_layered_keyframe_assets_are_discovered_as_one_scene_bundle(tmp_path) -> None:
+    keyframe = tmp_path / "scene_02_keyframe.png"
+    background = tmp_path / "scene_02_background.png"
+    character = tmp_path / "scene_02_character.png"
+    for path in (keyframe, background, character):
+        path.touch()
+    segment = SegmentRequest(text="Mia jumps.", keyframe_image=str(keyframe))
+    assert CudaKeyframeMotionGenerator.layered_assets(keyframe) == (
+        background, character,
+    )
+    assert CudaKeyframeMotionGenerator.has_layered_assets(segment)
