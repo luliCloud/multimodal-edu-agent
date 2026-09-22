@@ -1,0 +1,16 @@
+{
+  "professor": [
+    {"ref_clip": "reference_voices/candidates/p311_male.wav", "gender": "male"},
+    {"ref_clip": "reference_voices/candidates/p360_male.wav", "gender": "male"},
+    {"ref_clip": "reference_voices/candidates/p294_female.wav", "gender": "female"},
+    {"ref_clip": "reference_voices/candidates/p300_female.wav", "gender": "female"}
+  ],
+  "student_a": [
+    {"ref_clip": "reference_voices/candidates/p297_female.wav", "gender": "female"},
+    {"ref_clip": "reference_voices/candidates/p305_female.wav", "gender": "female"}
+  ],
+  "student_b": [
+    {"ref_clip": "reference_voices/candidates/p334_male.wav", "gender": "male"},
+    {"ref_clip": "reference_voices/candidates/p345_male.wav", "gender": "male"}
+  ]
+}

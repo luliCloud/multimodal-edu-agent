@@ -1,0 +1,18 @@
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Machine-specific device-detection cache
+.chatterbox_device_cache.json
+
+# Generated TTS output (audio + manifest) - regenerate with:
+#   python tts_cli.py generate <script.json> --output out.wav --manifest out_manifest.json
+/*.wav
+manifest.json
+*_manifest.json
+
+# Regenerable reference-voice intermediates (see download_vctk_subset.py /
+# audition_vctk_voices.py) - only reference_voices/candidates/ is needed to run
+reference_voices/vctk_raw/
+reference_voices/auditions/
