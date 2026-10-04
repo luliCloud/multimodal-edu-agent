@@ -28,7 +28,11 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_TTS_PYTHON = REPO_ROOT / "tts" / "venv" / "bin" / "python"
+# venv layout differs by OS: Scripts/python.exe on Windows, bin/python elsewhere.
+DEFAULT_TTS_PYTHON = (
+    REPO_ROOT / "tts" / "venv" / "Scripts" / "python.exe" if sys.platform == "win32"
+    else REPO_ROOT / "tts" / "venv" / "bin" / "python"
+)
 SYNC_SCRIPT = REPO_ROOT / "tts" / "sync_storyboard_audio.py"
 MUX_SCRIPT = REPO_ROOT / "tts" / "mux_narration_video.py"
 
@@ -43,7 +47,8 @@ def main() -> None:
     parser.add_argument("--backend", default="mock", choices=["mock", "cuda_probe", "wan"])
     parser.add_argument("--tts-python", default=str(DEFAULT_TTS_PYTHON),
                         help="Python executable inside tts/'s own venv "
-                             "(default: tts/venv/bin/python)")
+                             "(default: tts/venv/Scripts/python.exe on Windows, "
+                             "tts/venv/bin/python elsewhere)")
     parser.add_argument("--seed", type=int, default=None,
                         help="Seed the per-role voice pick (see tts_cli.py)")
     parser.add_argument("--no-mux", action="store_true",
@@ -57,10 +62,14 @@ def main() -> None:
 
     tts_python = Path(args.tts_python)
     if not tts_python.exists():
+        setup = (
+            "  cd tts && python -m venv venv && venv\\Scripts\\pip install -r requirements.txt"
+            if sys.platform == "win32" else
+            "  cd tts && python3 -m venv venv && venv/bin/pip install -r requirements.txt"
+        )
         print(
             f"ERROR: tts python not found at {tts_python}\n"
-            "Set up tts/'s venv first:\n"
-            "  cd tts && python3 -m venv venv && venv/bin/pip install -r requirements.txt\n"
+            f"Set up tts/'s venv first:\n{setup}\n"
             "or pass --tts-python /path/to/python",
             file=sys.stderr,
         )
