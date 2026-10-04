@@ -174,6 +174,20 @@ instead of a fixed 3-second mock clip or an even 15-second split. Actually muxin
 narration track into the rendered MP4 is not done by this step - `narration_audio_path`
 is left in the script for that future work.
 
+Both commands above run as one with `backend/scripts/run_synced_short_demo.py`. Try it
+with the bundled example (`examples/carbon_bonding/script.json`), which needs no GPU or
+Qwen planner run:
+
+```bash
+python -m backend.scripts.run_synced_short_demo examples/carbon_bonding/script.json --gender female
+```
+
+This writes `examples/carbon_bonding/script.synced.json`, `script.narration.wav`, and
+renders `videos/` + `final.mp4` beside it (mock backend by default; `--backend wan` for
+real inference). It assumes `tts/`'s venv is at `tts/venv` - pass `--tts-python
+/path/to/python` if yours lives elsewhere. Any extra flags (e.g. `--scene 1`) pass through
+to `render_short_script.py`.
+
 Start the API:
 
 ```bash
