@@ -47,6 +47,28 @@ class LocalPipelineTest(unittest.TestCase):
             )
 
 
+def test_mock_generator_sizes_clip_to_synced_narration_duration(tmp_path) -> None:
+    """Once tts/sync_storyboard_audio.py has set start/end_seconds on a
+    segment, the mock backend should size the clip to that real duration
+    instead of the fixed mock_clip_seconds default."""
+    request = UploadRequest(
+        title="Synced",
+        segments=[
+            SegmentRequest(text="Segment with real timing",
+                           start_seconds=1.0, end_seconds=6.5),
+            SegmentRequest(text="Segment with no timing yet"),
+        ],
+    )
+    job = LocalPipeline(
+        settings=Settings(generator_backend="mock", storage_dir=tmp_path),
+    ).submit(request, run_inline=True)
+
+    assert job.status == "completed"
+    scene_videos = [video for video in job.videos if not video.segment_id.endswith("-combined")]
+    assert scene_videos[0].duration_seconds == 6  # round(6.5 - 1.0)
+    assert scene_videos[1].duration_seconds == 3  # falls back to mock_clip_seconds default
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -20,6 +20,11 @@ class SegmentRequest(BaseModel):
     narration: str | None = None
     # Estimated read-aloud length, for the narration/audio stage to match against.
     narration_seconds: float | None = None
+    # Actual position in the synthesized narration track, once TTS has run
+    # (see tts/sync_storyboard_audio.py). When set, generators size the clip
+    # to end_seconds - start_seconds instead of a fixed/estimated duration.
+    start_seconds: float | None = None
+    end_seconds: float | None = None
     # A real image bible shared by every scene featuring the recurring character.
     # reference_prompt is used only when the image does not exist yet.
     reference_id: str | None = None

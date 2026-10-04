@@ -52,6 +52,20 @@ class WanVideoGenerator:
         self._controlled.num_frames = self.num_frames
         self._keyframe_motion.num_frames = self.num_frames
 
+    def fit_segment(self, segment: SegmentRequest, scene_count: int) -> None:
+        """Size this scene's clip from its actual synced narration duration
+        (segment.start_seconds/end_seconds, set by tts/sync_storyboard_audio.py)
+        when available, else fall back to the even 15s/scene_count split."""
+        if self._frames_explicit:
+            return
+        if segment.start_seconds is not None and segment.end_seconds is not None:
+            duration = max(segment.end_seconds - segment.start_seconds, 1 / self.fps)
+            self.num_frames = self.frames_for_scene_count(1, self.fps, seconds=duration)
+        else:
+            self.num_frames = self.frames_for_scene_count(scene_count, self.fps)
+        self._controlled.num_frames = self.num_frames
+        self._keyframe_motion.num_frames = self.num_frames
+
     def _load_pipeline(self):
         if self._pipeline is None:
             import torch

@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from backend.app.models.jobs import SegmentRequest, VideoArtifact
+from backend.app.services.mock_video import MIN_CLIP_SECONDS
 
 
 class CudaProbeVideoGenerator:
@@ -19,14 +20,19 @@ class CudaProbeVideoGenerator:
 
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA backend selected but no GPU is visible")
+        if segment.start_seconds is not None and segment.end_seconds is not None:
+            duration = max(segment.end_seconds - segment.start_seconds, MIN_CLIP_SECONDS)
+        else:
+            duration = self.duration_seconds
         device = torch.device(f"cuda:{gpu_id}")
         width, height, fps = 256, 144, 8
+        total_frames = max(1, round(duration * fps))
         x = torch.linspace(0, 1, width, device=device).view(1, width)
         y = torch.linspace(0, 1, height, device=device).view(height, 1)
         color = bytes.fromhex(hashlib.sha256(segment.text.encode()).hexdigest()[:6])
         frames = bytearray()
-        for index in range(self.duration_seconds * fps):
-            phase = index / (self.duration_seconds * fps)
+        for index in range(total_frames):
+            phase = index / total_frames
             red = (x.expand(height, -1) + color[0] / 255 + phase) % 1
             green = (y.expand(-1, width) + color[1] / 255 + phase) % 1
             blue = ((x + y) / 2 + color[2] / 255 + phase) % 1
@@ -43,4 +49,4 @@ class CudaProbeVideoGenerator:
         if result.returncode:
             raise RuntimeError(f"Video encoding failed: {result.stderr.decode(errors='replace')[-500:]}")
         return VideoArtifact(segment_id=segment_id, path=str(path), media_type="video/mp4",
-                             duration_seconds=self.duration_seconds, gpu_id=gpu_id)
+                             duration_seconds=round(duration), gpu_id=gpu_id)

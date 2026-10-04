@@ -62,6 +62,33 @@ land on a different pool member for variety across videos.
   generation, used to validate the conditioning-cache optimization in
   `tts_cli.py`.
 
+## Syncing with the video pipeline
+
+`sync_storyboard_audio.py` bridges this module with the `backend/` video
+generation pipeline's storyboard schema (`ShortPlan`/`ShortScene` in
+`backend/app/models/shorts.py`). Given a reviewed `script.json` (one
+`narration` string per scene, one global `character` as the narrator), it:
+
+1. Converts each scene's `narration` into a `{speaker, gender, line}` turn
+   and runs it through `tts_cli.py generate`, same as above.
+2. Writes the *actual* measured duration of each scene's narration back
+   into the script as `start_seconds`/`end_seconds` (replacing the
+   pre-TTS word-count estimate in `narration_seconds`, which can't account
+   for real speech rate), plus a `narration_audio_path` pointing at the
+   combined WAV.
+
+```bash
+python sync_storyboard_audio.py path/to/script.json --gender female
+# -> path/to/script.synced.json, path/to/script.narration.wav
+```
+
+Render stage 2 of the video pipeline from `script.synced.json` instead of
+the original `script.json`: `mock_video.py`, `cuda_probe_video.py` and
+`wan_video.py` all size each scene's clip from `end_seconds - start_seconds`
+when present, so clip length matches the real narration instead of a fixed
+mock duration or an even 15-second split. Muxing the narration WAV into the
+rendered video is a separate step, not yet implemented.
+
 ## Reference voices: CSTR VCTK Corpus
 
 The reference clips under `reference_voices/` are sourced from the

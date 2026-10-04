@@ -17,6 +17,25 @@ def test_wan_defaults_to_portrait_output(monkeypatch, tmp_path) -> None:
     assert generator._controlled.num_frames == 17
 
 
+def test_fit_segment_uses_actual_synced_duration_over_equal_split(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("WAN_NUM_FRAMES", raising=False)
+    generator = WanVideoGenerator(tmp_path)
+
+    # No start/end_seconds yet (plan hasn't been through tts/sync_storyboard_audio.py):
+    # falls back to the existing equal 15s/scene_count split.
+    generator.fit_segment(SegmentRequest(text="Unsynced"), scene_count=5)
+    assert generator.num_frames == generator.frames_for_scene_count(5, generator.fps)
+
+    # Actual timing present: sized from that segment's own real duration,
+    # independent of how many other scenes are in the job.
+    generator.fit_segment(
+        SegmentRequest(text="Synced", start_seconds=1.0, end_seconds=4.0), scene_count=5,
+    )
+    assert generator.num_frames == generator.frames_for_scene_count(1, generator.fps, seconds=3.0)
+    assert generator._controlled.num_frames == generator.num_frames
+    assert generator._keyframe_motion.num_frames == generator.num_frames
+
+
 def test_lifecycle_reference_routes_every_stage_to_controlled_motion(monkeypatch) -> None:
     monkeypatch.delenv("WAN_CONTROLLED_MOTION", raising=False)
     prefix = "GLOBAL_CHARACTER: Seedling; plant; same physical identity. "
