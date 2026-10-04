@@ -76,51 +76,63 @@ in practice while keeping sync exact - so that's what this pipeline does.
 
 ## Quick Start (single command, generates audio + video + merges them)
 
-### 1. Set up both venvs
+### 1. Set up both venvs (one time only)
 
 This repo has two independent Python environments - `tts/`'s (Chatterbox) and
-`backend/`'s (FastAPI/Pydantic) - because their dependencies don't overlap
-and Chatterbox's are heavy (torch, etc.). Both are required for the full
-synced flow; `tts/`'s alone is enough if you only want audio (see Usage).
+`backend/`'s (FastAPI/Pydantic, plus video generation deps) - because their
+dependencies don't overlap and don't need to: Chatterbox's are heavy (torch,
+etc.) and so are Wan's (torch, diffusers, transformers). Both venvs are
+required for the full synced flow; `tts/`'s alone is enough if you only want
+audio (see Usage below).
+
+A setup script creates both venvs and installs the right dependencies for
+whichever video backend you intend to use, in one run - run it once per
+machine:
 
 **macOS / Linux:**
 ```bash
 # from the repo root
-cd tts
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-deactivate
-
-cd ..
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+./setup.sh wan          # real GPU video generation (needs a CUDA GPU) - the default
+./setup.sh mock          # no GPU - placeholder colored-rectangle clips, for testing the flow
+./setup.sh cuda_probe    # CUDA smoke test backend, not real video either
 ```
 
 **Windows (PowerShell):**
 ```powershell
 # from the repo root
-cd tts
-python -m venv venv
-venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-deactivate
-
-cd ..
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
+.\setup.ps1 -Backend wan        # real GPU video generation (needs a CUDA GPU) - the default
+.\setup.ps1 -Backend mock       # no GPU - placeholder colored-rectangle clips, for testing the flow
+.\setup.ps1 -Backend cuda_probe
 ```
 
-You'll also need **ffmpeg** on your `PATH` (used for video assembly and
-muxing): macOS `brew install ffmpeg`, Windows `winget install ffmpeg` (or
-download a build and add it to `PATH` manually), Linux `apt install ffmpeg`
-or your distro's equivalent.
+Either script: checks `ffmpeg` is on `PATH`, creates `tts/venv`, installs
+`tts/requirements.txt` into it, creates `.venv` at the repo root, installs
+the backend with the extras that match your chosen backend (`.[dev,wan]`,
+`.[dev]`, or `.[dev,cuda]`), and - for `wan`/`cuda_probe` - checks whether
+`torch.cuda.is_available()` actually comes back `True` so a GPU/driver/torch
+mismatch is caught immediately instead of failing confusingly mid-generation.
+
+If you don't have ffmpeg yet: macOS `brew install ffmpeg`, Windows
+`winget install ffmpeg` (or download a build and add it to `PATH` manually),
+Linux `apt install ffmpeg` or your distro's equivalent. Re-run the setup
+script after installing it to confirm it's picked up.
 
 The reference voice clips needed to run TTS out of the box are already
 included under `reference_voices/candidates/`, so no download step is
 required before the first run.
+
+**On an 8GB GPU (e.g. RTX 4060):** the Wan backend's defaults are tuned for a
+16GB card. 8GB should work via its built-in CPU offload, but if `--backend wan`
+hits a CUDA out-of-memory error, fall back to a smaller configuration:
+```bash
+WAN_NUM_FRAMES=17 WAN_STEPS=8 WAN_HEIGHT=448 WAN_WIDTH=256 python -m backend.scripts.run_synced_short_demo ...
+```
+(PowerShell: `$env:WAN_NUM_FRAMES=17; $env:WAN_STEPS=8; $env:WAN_HEIGHT=448; $env:WAN_WIDTH=256` first, then the same command.)
+I haven't been able to verify Wan generation end-to-end myself (no GPU available
+while building this) - the audio-sync wiring into it (`WanVideoGenerator.fit_segment`
+in `backend/app/services/wan_video.py`) is unit-tested, but real generation on
+real hardware is untested beyond that. If something breaks, that's the first
+place to look.
 
 ### 2. Run the one command
 
@@ -137,13 +149,30 @@ match it, and muxes them into one file, printing the final path at the end
 audio play together automatically, nothing else needed.
 
 Flags:
-- `--backend mock|cuda_probe|wan` (default `mock` - no GPU required)
+- `--backend mock|cuda_probe|wan` (default `mock` - no GPU required). `mock`
+  produces placeholder colored-rectangle clips, useful for testing the sync
+  timing without a GPU. `wan` is the real AI-generated video (actual visual
+  scenes matching each scene's description) - see below.
 - `--tts-python /path/to/python` if `tts/`'s venv isn't at the default
   location (`tts/venv/bin/python` on macOS/Linux, `tts/venv/Scripts/python.exe`
   on Windows - this is auto-detected per OS)
 - `--seed N` to make the voice pick reproducible
 - `--no-mux` to skip step 3 and leave a silent video + separate WAV
 - any other flag (e.g. `--scene 1`) passes through to `render_short_script.py`
+
+### Using `--backend wan` for real generated video
+
+```bash
+python -m backend.scripts.run_synced_short_demo examples/carbon_bonding/script.json --gender female --backend wan
+```
+
+Needs a CUDA GPU (see Quick Start setup above) and takes minutes, not
+seconds - it's running an actual diffusion model per scene, not drawing a
+colored rectangle. First run also downloads the Wan2.1 model weights
+(several GB) and, if `character.kind` contains a word like "human", "person",
+"child", "girl" or "boy" (as `examples/carbon_bonding/script.json`'s
+`"human narrator"` does), additionally generates a one-time character
+reference image before the per-scene video - that's expected, not stuck.
 
 ## How to get a script.json
 

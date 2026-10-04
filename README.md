@@ -147,10 +147,13 @@ Burned-in captions and transitions remain the next media-composition stage.
 ## Syncing Narration Audio with the Video Script
 
 The local TTS module under [`tts/`](tts/) (Chatterbox voice cloning, fully offline) is
-intentionally decoupled from `backend/`: it has its own venv and dependencies. Given a
-reviewed `script.json` from stage 1, one command synthesizes its narration, renders the
-video sized to match the real (measured, not estimated) narration length, and muxes them
-into a single playable file:
+intentionally decoupled from `backend/`: it has its own venv and dependencies. Run
+`./setup.sh wan` (macOS/Linux) or `.\setup.ps1 -Backend wan` (Windows) once per machine to
+create both venvs with the right dependencies for real GPU video generation (`mock`/
+`cuda_probe` also available, no GPU needed for those). Given a reviewed `script.json` from
+stage 1, one command then synthesizes its narration, renders the video sized to match the
+real (measured, not estimated) narration length, and muxes them into a single playable
+file:
 
 ```bash
 python -m backend.scripts.run_synced_short_demo storage/demo/after_the_rain/script.json --gender female
