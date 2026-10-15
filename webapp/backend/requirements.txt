@@ -1,0 +1,6 @@
+# The webapp reuses the pipeline package at the repository root:
+#   pip install -e ".[dev]"   (from the repo root)
+# and then adds the web-only dependencies below.
+fastapi>=0.115.0,<0.120.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
