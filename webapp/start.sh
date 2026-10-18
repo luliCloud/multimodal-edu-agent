@@ -17,6 +17,13 @@ WEB_PORT="${WEB_PORT:-3000}"
 MODE="dev"
 [[ "${1:-}" == "--prod" ]] && MODE="prod"
 
+# Prefer a workspace-local Node installation when the host does not provide one.
+# This keeps the demo runnable on lab machines where students do not have sudo.
+LOCAL_NODE_BIN="$(dirname "$ROOT")/.tools/node/bin"
+if ! command -v npm >/dev/null 2>&1 && [[ -x "$LOCAL_NODE_BIN/npm" ]]; then
+  export PATH="$LOCAL_NODE_BIN:$PATH"
+fi
+
 cd "$ROOT"
 
 # ---- Python environment -------------------------------------------------------
