@@ -151,6 +151,46 @@ def test_rejects_non_pdf_and_bad_media_keys(tmp_path: Path) -> None:
     assert client.get("/api/projects/not-an-id").status_code == 404
 
 
+def test_visual_bible_assets_can_be_uploaded_and_served(tmp_path: Path) -> None:
+    client = TestClient(create_app(_settings(tmp_path)))
+    project = _wait(client, _upload(client)["id"], "draft", "failed")
+    response = client.post(f"/api/projects/{project['id']}/assets", files=[
+        ("files", ("character_reference.png", b"fake-png", "image/png")),
+        ("files", ("full_pose_sheet.png", b"pose-sheet", "image/png")),
+    ])
+    assert response.status_code == 200, response.text
+    assets = response.json()
+    assert [item["name"] for item in assets] == [
+        "character_reference.png", "full_pose_sheet.png",
+    ]
+    preview = client.get(assets[0]["url"])
+    assert preview.status_code == 200
+    assert preview.content == b"fake-png"
+    assert client.get(f"/api/projects/{project['id']}/assets").json() == assets
+
+    bad = client.post(f"/api/projects/{project['id']}/assets", files={
+        "files": ("notes.txt", b"not an asset", "text/plain")})
+    assert bad.status_code == 400
+
+
+def test_matching_visual_bible_is_imported_after_planning(tmp_path: Path) -> None:
+    settings = _settings(tmp_path, render_backend="wan")
+    library = settings.prerendered_dir / "the_little_seed" / "assets"
+    library.mkdir(parents=True)
+    (library / "character_reference.png").write_bytes(b"trusted-character")
+    (library / "full_pose_sheet.png").write_bytes(b"trusted-poses")
+    client = TestClient(create_app(settings))
+    project = _wait(client, _upload(client)["id"], "draft", "failed")
+    assets = client.get(f"/api/projects/{project['id']}/assets").json()
+    assert [item["name"] for item in assets] == [
+        "character_reference.png", "full_pose_sheet.png",
+    ]
+    project_dir = settings.data_dir / project["id"] / "assets"
+    assert (project_dir / "character_reference.png").read_bytes() == b"trusted-character"
+    refreshed = client.get(f"/api/projects/{project['id']}").json()
+    assert any("Loaded visual bible" in event["message"] for event in refreshed["events"])
+
+
 def test_planner_script_round_trips_through_editor() -> None:
     from backend.app.models.shorts import ShortPlan
     from backend.app.services.shorts_planner import scene_visual_prompt

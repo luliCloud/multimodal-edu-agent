@@ -14,7 +14,8 @@ from webapp.backend.app.models import (
     Project, ProjectEvent, ProjectStatus, RenderState, utcnow,
 )
 from webapp.backend.app.services.pipeline_bridge import (
-    UserFacingError, plan_script, read_pdf, render_videos, validate_script,
+    UserFacingError, import_library_assets, plan_script, read_pdf, render_videos,
+    validate_script,
 )
 from webapp.backend.app.services.projects import ProjectStore
 from webapp.backend.app.services.storage import VideoStorage
@@ -78,6 +79,20 @@ class TaskRunner:
                 project.events.append(_event(
                     f"Storyboard ready with {len(script.scenes)} scenes"))
             self.store.update(project_id, finish)
+            assets_dir = self.store.assets_dir(project_id)
+            if (self.settings.render_backend == "wan"
+                    and not (assets_dir / ".manual-assets").is_file()):
+                project = self.store.get(project_id)
+                source, imported = import_library_assets(
+                    assets_dir=assets_dir,
+                    library_dir=self.settings.prerendered_dir,
+                    names=[project.filename.rsplit(".", 1)[0], project.title],
+                )
+                if imported:
+                    self.store.log(
+                        project_id,
+                        f"Loaded visual bible with {len(imported)} asset(s) from {source}",
+                    )
         except UserFacingError as exc:
             self._fail(project_id, str(exc))
         except Exception as exc:  # noqa: BLE001 - surfaced to the UI, logged in full here

@@ -5,8 +5,8 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse, Response
 
 from webapp.backend.app.models import (
-    BUSY_STATUSES, LibraryVideo, Project, ProjectStatus, ProjectSummary, RenderRequest,
-    ScriptUpdate, ServerInfo,
+    BUSY_STATUSES, LibraryVideo, Project, ProjectAsset, ProjectStatus, ProjectSummary,
+    RenderRequest, ScriptUpdate, ServerInfo,
 )
 from webapp.backend.app.services.pipeline_bridge import refresh_derived_fields, validate_script
 from webapp.backend.app.services.projects import ProjectNotFound, dump_script
@@ -134,6 +134,71 @@ def export_script(request: Request, project_id: str) -> Response:
     name = project.filename.rsplit(".", 1)[0] or "script"
     return Response(dump_script(project), media_type="application/json", headers={
         "Content-Disposition": f'attachment; filename="{name}-script.json"'})
+
+
+_ASSET_SUFFIXES = {".png", ".jpg", ".jpeg", ".json"}
+
+
+def _asset_path(request: Request, project_id: str, name: str):
+    _get(request, project_id)
+    safe_name = PurePosixPath(name).name
+    if safe_name != name or not safe_name or PurePosixPath(name).suffix.lower() not in _ASSET_SUFFIXES:
+        raise HTTPException(status_code=400, detail="Invalid asset name")
+    return request.app.state.projects.assets_dir(project_id) / safe_name
+
+
+@router.get("/projects/{project_id}/assets", response_model=list[ProjectAsset])
+def list_assets(request: Request, project_id: str) -> list[ProjectAsset]:
+    _get(request, project_id)
+    directory = request.app.state.projects.assets_dir(project_id)
+    if not directory.is_dir():
+        return []
+    return [
+        ProjectAsset(
+            name=path.name,
+            size_bytes=path.stat().st_size,
+            url=f"/api/projects/{project_id}/assets/{path.name}",
+        )
+        for path in sorted(directory.iterdir())
+        if path.is_file() and path.suffix.lower() in _ASSET_SUFFIXES
+    ]
+
+
+@router.post("/projects/{project_id}/assets", response_model=list[ProjectAsset])
+async def upload_assets(request: Request, project_id: str,
+                        files: list[UploadFile] = File(...)) -> list[ProjectAsset]:
+    settings, projects, _, _ = _services(request)
+    project = _get(request, project_id)
+    if project.status in BUSY_STATUSES:
+        raise HTTPException(status_code=409, detail="Wait for the current project step to finish")
+    directory = projects.assets_dir(project_id)
+    directory.mkdir(parents=True, exist_ok=True)
+    uploaded: list[str] = []
+    for file in files:
+        raw_name = file.filename or ""
+        name = PurePosixPath(raw_name).name
+        if name != raw_name:
+            raise HTTPException(status_code=400, detail="Invalid asset name")
+        path = _asset_path(request, project_id, name)
+        data = await file.read(settings.max_upload_bytes + 1)
+        if len(data) > settings.max_upload_bytes:
+            raise HTTPException(status_code=413, detail=f"{name} exceeds the upload limit")
+        path.write_bytes(data)
+        uploaded.append(name)
+    # This marker prevents render-time auto-discovery from replacing an explicit choice.
+    (directory / ".manual-assets").write_text("\n".join(uploaded), encoding="utf-8")
+    projects.log(project_id, f"Uploaded {len(uploaded)} visual bible asset(s): {', '.join(uploaded)}")
+    return list_assets(request, project_id)
+
+
+@router.get("/projects/{project_id}/assets/{name}")
+def project_asset(request: Request, project_id: str, name: str) -> FileResponse:
+    path = _asset_path(request, project_id, name)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Asset not found")
+    media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return FileResponse(path, media_type=media_type, filename=path.name,
+                        content_disposition_type="inline")
 
 
 @router.get("/library", response_model=list[LibraryVideo])

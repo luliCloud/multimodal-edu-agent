@@ -76,6 +76,12 @@ export interface ProjectVideo {
   size_bytes: number | null;
 }
 
+export interface ProjectAsset {
+  name: string;
+  size_bytes: number;
+  url: string;
+}
+
 export interface RenderState {
   render_id: string;
   backend: string;
@@ -203,6 +209,12 @@ export const api = {
       ...json({ scenes: scenes ?? null }),
     }),
   library: () => request<LibraryVideo[]>("/api/library"),
+  assets: (id: string) => request<ProjectAsset[]>(`/api/projects/${id}/assets`),
+  uploadAssets: (id: string, files: File[]) => {
+    const form = new FormData();
+    files.forEach((file) => form.append("files", file));
+    return request<ProjectAsset[]>(`/api/projects/${id}/assets`, { method: "POST", body: form });
+  },
 };
 
 /** Upload with progress events (fetch has no upload progress). */

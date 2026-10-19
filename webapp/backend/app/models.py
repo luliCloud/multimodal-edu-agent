@@ -78,6 +78,12 @@ class ProjectVideo(BaseModel):
     size_bytes: int | None = None
 
 
+class ProjectAsset(BaseModel):
+    name: str
+    size_bytes: int
+    url: str
+
+
 class RenderState(BaseModel):
     render_id: str = Field(default_factory=lambda: uuid4().hex[:10])
     backend: str

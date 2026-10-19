@@ -5,6 +5,7 @@ Nothing here reimplements planning or generation; it calls the same functions th
 """
 
 import re
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 
@@ -258,6 +259,24 @@ def _prerendered(prerendered_dir: Path, names: list[str]) -> Path:
     raise UserFacingError(f"No pre-rendered video found. Looked for: {listed}")
 
 
+def import_library_assets(*, assets_dir: Path, library_dir: Path,
+                          names: list[str]) -> tuple[Path | None, list[str]]:
+    """Import a trusted visual bible whose slug matches the PDF or planned title."""
+    for name in dict.fromkeys(slugify(value) for value in names if slugify(value)):
+        source = library_dir / name / "assets"
+        if not source.is_dir():
+            continue
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        imported = []
+        for path in sorted(source.iterdir()):
+            if not path.is_file() or path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".json"}:
+                continue
+            shutil.copy2(path, assets_dir / path.name)
+            imported.append(path.name)
+        return source, imported
+    return None, []
+
+
 def render_videos(*, project_id: str, render_id: str, script: EditableScript,
                   selected: list[int], backend: str, filename: str,
                   storage: VideoStorage, render_dir: Path, prerendered_dir: Path,
@@ -268,6 +287,16 @@ def render_videos(*, project_id: str, render_id: str, script: EditableScript,
     prefix = f"{project_id}/{render_id}"
     work_dir = render_dir / project_id / render_id
     narration: NarrationTrack | None = None
+
+    if backend == "wan" and not (assets_dir / ".manual-assets").is_file():
+        source, imported = import_library_assets(
+            assets_dir=assets_dir, library_dir=prerendered_dir,
+            names=[Path(filename).stem, script.title],
+        )
+        if imported:
+            on_message(
+                f"Loaded visual bible with {len(imported)} asset(s) from {source}"
+            )
 
     def stored(key: str, path: Path, kind: str, scene: int | None,
                duration: float | None, move: bool) -> ProjectVideo:

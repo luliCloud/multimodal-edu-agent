@@ -15,6 +15,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ProcessingView, Stepper } from "@/components/Pipeline";
+import { AssetLibrary } from "@/components/AssetLibrary";
 import { ScriptEditor } from "@/components/ScriptEditor";
 import { ConfirmDialog, ErrorPanel, Spinner, StatusBadge, useToast } from "@/components/ui";
 import { VideoStage } from "@/components/VideoStage";
@@ -212,6 +213,7 @@ export default function ProjectPage() {
           </div>
           {/* The editor stays mounted while hidden so unsaved edits survive tab switches. */}
           <div hidden={tab !== "script"}>
+            <AssetLibrary projectId={project.id} disabled={project.status === "rendering"} />
             <ScriptEditor
               key={project.id}
               project={project}
