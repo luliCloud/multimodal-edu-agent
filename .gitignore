@@ -11,3 +11,13 @@ storage/plans/*
 storage/shorts/*
 storage/demo/*
 storage/webapp/*
+
+# Project-local HPC installation and runtime state (never upload model weights).
+/.hpc.env
+/.download-venv/
+/cache/
+/downloads/
+/logs/
+/tmp/
+/experiments/
+/tts/venv/
