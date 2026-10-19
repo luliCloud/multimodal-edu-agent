@@ -14,8 +14,8 @@ from webapp.backend.app.models import (
     Project, ProjectEvent, ProjectStatus, RenderState, utcnow,
 )
 from webapp.backend.app.services.pipeline_bridge import (
-    UserFacingError, import_library_assets, plan_script, read_pdf, render_videos,
-    validate_script,
+    UserFacingError, import_library_assets, plan_script, plan_visual_note, read_pdf,
+    render_videos, supports_visual_note, validate_script,
 )
 from webapp.backend.app.services.projects import ProjectStore
 from webapp.backend.app.services.storage import VideoStorage
@@ -56,17 +56,40 @@ class TaskRunner:
         try:
             self.store.log(project_id, "Reading the PDF and extracting text",
                            stage_message="Extracting text")
-            pdf = self.store.pdf_path(project_id).read_bytes()
-            pages, title, preview = read_pdf(pdf)
-            self.store.log(
-                project_id,
-                f"Extracted {preview.page_count} page(s) and {preview.sentence_count} "
-                "narrative sentences",
-                status=ProjectStatus.planning, source=preview, title=title,
-                stage_message=("Designing scenes with Qwen (usually 1-3 minutes)"
-                               if backend == "qwen" else "Grouping sentences into scenes"),
-            )
-            script = plan_script(pages, title, backend)
+            pdf_path = self.store.pdf_path(project_id)
+            pdf = pdf_path.read_bytes()
+            project = self.store.get(project_id)
+            try:
+                pages, title, preview = read_pdf(pdf)
+            except UserFacingError as exc:
+                if "scanned pages need OCR" not in str(exc) or not supports_visual_note(
+                    project.filename
+                ):
+                    raise
+                self.store.log(
+                    project_id,
+                    "No text layer found; extracting diagrams from the scanned page",
+                    status=ProjectStatus.planning,
+                    stage_message="Building visual bible from scanned page",
+                )
+                script, preview = plan_visual_note(pdf_path, self.store.directory(project_id))
+                title = script.title
+                self.store.log(
+                    project_id,
+                    "Extracted phospholipid bilayer and ion channel visual assets",
+                    source=preview, title=title,
+                    stage_message="Designing scenes from visual assets",
+                )
+            else:
+                self.store.log(
+                    project_id,
+                    f"Extracted {preview.page_count} page(s) and {preview.sentence_count} "
+                    "narrative sentences",
+                    status=ProjectStatus.planning, source=preview, title=title,
+                    stage_message=("Designing scenes with Qwen (usually 1-3 minutes)"
+                                   if backend == "qwen" else "Grouping sentences into scenes"),
+                )
+                script = plan_script(pages, title, backend)
             issues = validate_script(script)
 
             def finish(project: Project) -> None:

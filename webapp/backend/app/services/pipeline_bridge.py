@@ -23,6 +23,9 @@ from backend.app.services.story_planner import plan_story
 from backend.app.services.storyboard_schema import (
     ScopeExceededError, StoryPlanningError, narration_seconds,
 )
+from backend.app.services.visual_note_video import (
+    cell_membrane_plan, extract_cell_membrane_bible, render_animation, render_pdf_page,
+)
 from webapp.backend.app.models import (
     EditableScene, EditableScript, ProjectVideo, SourcePreview, ValidationIssue,
 )
@@ -87,6 +90,33 @@ def plan_script(pages: list[str], title: str, planner_backend: str) -> EditableS
         planner_backend=planner_backend,
     )
     return refresh_derived_fields(script)
+
+
+def supports_visual_note(filename: str) -> bool:
+    slug = slugify(Path(filename).stem)
+    return slug in {"biomedical_class_note", "biological_1"}
+
+
+def plan_visual_note(pdf_path: Path, project_dir: Path) -> tuple[EditableScript, SourcePreview]:
+    """Plan the supported image-only class note and persist its source visual bible."""
+    page = render_pdf_page(pdf_path)
+    manifest = extract_cell_membrane_bible(page, project_dir, pdf_path.name)
+    raw = cell_membrane_plan()
+    plan = ShortPlan.model_validate(raw)
+    script = EditableScript.model_validate({
+        **plan.model_dump(),
+        "planner_backend": "visual-note",
+    })
+    preview = SourcePreview(
+        page_count=1,
+        sentence_count=len(plan.source_sentences),
+        keywords=[
+            {"keyword": asset["id"].replace("_", " "), "occurrences": 1, "pages": [1]}
+            for asset in manifest["assets"]
+        ],
+        excerpt=plan.summary,
+    )
+    return refresh_derived_fields(script), preview
 
 
 # ---------------------------------------------------------------- editing helpers
@@ -315,6 +345,22 @@ def render_videos(*, project_id: str, render_id: str, script: EditableScript,
         except NarrationError as exc:
             raise UserFacingError(str(exc)) from exc
         on_message("Narration ready; matching scene timing to speech")
+
+    if script.planner_backend == "visual-note":
+        on_message("Animating the extracted visual-note bible")
+        selected_set = set(selected)
+        visual_plan = script.model_dump(exclude={"planner_backend"})
+        visual_plan["scenes"] = [
+            scene for scene in visual_plan["scenes"] if scene["scene"] in selected_set
+        ]
+        final = render_animation(
+            work_dir, visual_plan,
+            audio_path=narration.path if narration else None,
+            asset_dir=assets_dir,
+        )
+        on_progress(1.0)
+        duration = len(visual_plan["scenes"]) * 3.75
+        return [stored(f"{prefix}/final.mp4", final, "final", None, duration, move=False)]
 
     if backend == "directory":
         source = _prerendered(prerendered_dir, [Path(filename).stem, script.title])

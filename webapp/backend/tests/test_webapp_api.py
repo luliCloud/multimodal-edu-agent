@@ -2,10 +2,12 @@ import shutil
 import subprocess
 import time
 import wave
+from io import BytesIO
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from webapp.backend.app.config import WebSettings
 from webapp.backend.app.main import create_app
@@ -189,6 +191,32 @@ def test_matching_visual_bible_is_imported_after_planning(tmp_path: Path) -> Non
     assert (project_dir / "character_reference.png").read_bytes() == b"trusted-character"
     refreshed = client.get(f"/api/projects/{project['id']}").json()
     assert any("Loaded visual bible" in event["message"] for event in refreshed["events"])
+
+
+def test_scanned_class_note_uses_visual_note_fallback(tmp_path: Path) -> None:
+    scanned = BytesIO()
+    Image.new("RGB", (1024, 1536), "white").save(scanned, format="PDF")
+    client = TestClient(create_app(_settings(tmp_path)))
+    response = client.post("/api/projects", files={
+        "file": ("biomedical_class_note.pdf", scanned.getvalue(), "application/pdf"),
+    })
+    assert response.status_code == 202, response.text
+    project = _wait(client, response.json()["id"], "draft", "failed")
+    assert project["status"] == "draft", project["error"]
+    assert project["script"]["planner_backend"] == "visual-note"
+    assert project["title"] == "Cell Membrane: A Selective Boundary"
+    assets = client.get(f"/api/projects/{project['id']}/assets").json()
+    assert {asset["name"] for asset in assets} >= {
+        "phospholipid_bilayer.png", "ion_channel.png",
+    }
+    assert any("No text layer found" in event["message"] for event in project["events"])
+    started = client.post(f"/api/projects/{project['id']}/render")
+    assert started.status_code == 202, started.text
+    rendered = _wait(client, project["id"], "rendered", "draft")
+    assert rendered["status"] == "rendered", rendered["error"]
+    assert len(rendered["videos"]) == 1
+    assert rendered["videos"][0]["kind"] == "final"
+    assert rendered["videos"][0]["duration_seconds"] == 15
 
 
 def test_planner_script_round_trips_through_editor() -> None:

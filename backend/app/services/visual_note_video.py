@@ -301,10 +301,12 @@ def _scene_frame(scene: int, progress: float, page: Image.Image,
     return frame
 
 
-def render_animation(output_dir: Path, plan: dict, *, audio_path: Path | None = None) -> Path:
+def render_animation(output_dir: Path, plan: dict, *, audio_path: Path | None = None,
+                     asset_dir: Path | None = None) -> Path:
     import imageio_ffmpeg
 
-    assets = output_dir / "assets"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    assets = asset_dir or output_dir / "assets"
     page = Image.open(assets / "page_01.png").convert("RGB")
     focus = Image.open(assets / "focus_top_quarter.png").convert("RGB")
     membrane = Image.open(assets / "phospholipid_bilayer.png").convert("RGB")
@@ -322,7 +324,8 @@ def render_animation(output_dir: Path, plan: dict, *, audio_path: Path | None = 
     keyframes = output_dir / "keyframes"
     keyframes.mkdir(exist_ok=True)
     try:
-        for scene, scene_data in enumerate(plan["scenes"], 1):
+        for scene_data in plan["scenes"]:
+            scene = int(scene_data["scene"])
             for index in range(scene_frames):
                 progress = index / max(scene_frames - 1, 1)
                 frame = _scene_frame(
@@ -342,15 +345,16 @@ def render_animation(output_dir: Path, plan: dict, *, audio_path: Path | None = 
         final.write_bytes(silent.read_bytes())
         return final
     final = output_dir / "final_with_audio.mp4"
+    video_seconds = len(plan["scenes"]) * scene_frames / FPS
     with wave.open(str(audio_path), "rb") as source:
         audio_seconds = source.getnframes() / source.getframerate()
     # Chatterbox speech varies by voice. Gently tighten long narration instead of
     # cutting the final sentence at the 15-second video boundary.
-    speed = max(1.0, audio_seconds / 14.8)
+    speed = max(1.0, audio_seconds / max(video_seconds - 0.2, 0.5))
     result = subprocess.run([
         ffmpeg, "-loglevel", "error", "-y", "-i", str(silent), "-i", str(audio_path),
         "-c:v", "copy", "-filter:a", f"atempo={speed:.6f}",
-        "-c:a", "aac", "-b:a", "128k", "-t", "15",
+        "-c:a", "aac", "-b:a", "128k", "-t", f"{video_seconds:.3f}",
         "-movflags", "+faststart", str(final),
     ], capture_output=True, text=True)
     if result.returncode:
