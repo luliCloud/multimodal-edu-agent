@@ -44,6 +44,22 @@ reruns the planner.
 python -m backend.scripts.plan_short_pdf "test_pdfs/After the Rain.pdf"
 ```
 
+For a scanned visual note with no PDF text layer, the visual-note prototype rasterizes
+page one, records normalized source regions in a reviewable visual bible, and animates
+the extracted diagrams without redrawing them:
+
+```bash
+.venv/bin/python -m backend.scripts.animate_visual_note \
+  "test_pdfs/biomedical_class_note.pdf"
+```
+
+The cell-membrane demo focuses on the first quarter of the note and extracts the
+phospholipid bilayer and ion channel. It writes `visual_bible.json`, source crops,
+`script.json`, four keyframes, narration, and `final_with_audio.mp4` under
+`storage/demo/biomedical_class_note/`. The current extraction template stores its
+normalized bounding boxes explicitly; a later vision planner can produce the same
+manifest contract for arbitrary note layouts.
+
 This writes:
 
 ```text
