@@ -123,7 +123,13 @@ class ShortScene(ShortSceneDraft):
     keywords: list[str] = Field(default_factory=list)
     visual_prompt: str | None = None
     keyframe_prompt: str | None = None
+    # Word-count estimate from narration_seconds(), fixed at planning time.
     narration_seconds: float = Field(gt=0)
+    # Actual position in the synthesized narration track, filled in by
+    # tts/sync_storyboard_audio.py once real audio exists for this scene.
+    # None until that sync step has run.
+    start_seconds: float | None = Field(default=None, ge=0)
+    end_seconds: float | None = Field(default=None, ge=0)
 
 
 class ShortPlan(BaseModel):
@@ -134,6 +140,9 @@ class ShortPlan(BaseModel):
     scenes: list[ShortScene] = Field(min_length=MIN_SCENES, max_length=MAX_SCENES)
     source_sentences: list[dict]
     duration_seconds: int = 15
+    # Path to the combined narration WAV this plan was synced against, set by
+    # tts/sync_storyboard_audio.py. None until that sync step has run.
+    narration_audio_path: str | None = None
 
     @model_validator(mode="after")
     def validate_plan(self) -> "ShortPlan":

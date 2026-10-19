@@ -1,5 +1,7 @@
 import shutil
+import subprocess
 import time
+import wave
 from pathlib import Path
 
 import pytest
@@ -7,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from webapp.backend.app.config import WebSettings
 from webapp.backend.app.main import create_app
+from webapp.backend.app.services.narration import NarrationTrack, ffmpeg_executable
 
 REPO = Path(__file__).resolve().parents[3]
 PDF = REPO / "test_pdfs" / "The_Little_Seed.pdf"
@@ -15,7 +18,7 @@ PDF = REPO / "test_pdfs" / "The_Little_Seed.pdf"
 def _settings(tmp_path: Path, **overrides) -> WebSettings:
     values = dict(data_dir=tmp_path / "projects", video_dir=tmp_path / "videos",
                   render_dir=tmp_path / "scratch", prerendered_dir=tmp_path / "demo",
-                  render_backend="mock", planner_backend="extractive")
+                  render_backend="mock", planner_backend="extractive", tts_enabled=False)
     values.update(overrides)
     settings = WebSettings(**values)
     for directory in (settings.data_dir, settings.video_dir, settings.render_dir):
@@ -103,6 +106,43 @@ def test_directory_backend_and_external_videos(tmp_path: Path) -> None:
     assert kinds == ["external", "final"]
 
 
+def test_web_render_embeds_narration_audio(tmp_path: Path, monkeypatch) -> None:
+    def fake_synthesis(*, selected, work_dir, **_kwargs):
+        work_dir.mkdir(parents=True, exist_ok=True)
+        path = work_dir / "narration.wav"
+        sample_rate = 16000
+        scene_seconds = 0.6
+        with wave.open(str(path), "wb") as output:
+            output.setnchannels(1)
+            output.setsampwidth(2)
+            output.setframerate(sample_rate)
+            output.writeframes(b"\0\0" * round(sample_rate * scene_seconds * len(selected)))
+        timings = {
+            number: (index * scene_seconds, (index + 1) * scene_seconds)
+            for index, number in enumerate(selected)
+        }
+        return NarrationTrack(path=path, timings=timings)
+
+    monkeypatch.setattr(
+        "webapp.backend.app.services.pipeline_bridge.synthesize_narration",
+        fake_synthesis,
+    )
+    settings = _settings(tmp_path, tts_enabled=True)
+    client = TestClient(create_app(settings))
+    project = _wait(client, _upload(client)["id"], "draft", "failed")
+    assert client.get("/api/health").json()["tts_enabled"] is True
+    client.post(f"/api/projects/{project['id']}/render", json={"scenes": [1, 2]})
+    done = _wait(client, project["id"], "rendered", "draft")
+    assert done["status"] == "rendered", done["error"]
+
+    final = next(settings.video_dir.rglob("final.mp4"))
+    probe = subprocess.run(
+        [ffmpeg_executable(), "-i", str(final)], capture_output=True, text=True,
+    )
+    assert "Video: h264" in probe.stderr
+    assert "Audio: aac" in probe.stderr
+
+
 def test_rejects_non_pdf_and_bad_media_keys(tmp_path: Path) -> None:
     client = TestClient(create_app(_settings(tmp_path)))
     bad = client.post("/api/projects", files={"file": ("x.pdf", b"hello", "application/pdf")})
@@ -125,8 +165,13 @@ def test_planner_script_round_trips_through_editor() -> None:
     script = refresh_derived_fields(EditableScript.model_validate({**raw, "planner_backend": "qwen"}))
     assert script.scenes[1].visual_prompt == scene_visual_prompt(plan, plan.scenes[1])
     assert validate_script(script) == []
-    request = _upload_request(script, [1, 3], "mock", Path("/nonexistent"))
+    request = _upload_request(
+        script, [1, 3], "mock", Path("/nonexistent"),
+        {1: (0.0, 2.4), 3: (2.4, 5.1)},
+    )
     assert [segment.title for segment in request.segments] == ["Scene 1", "Scene 3"]
+    assert request.segments[0].end_seconds == 2.4
+    assert request.segments[1].start_seconds == 2.4
 
     script.scenes[0].custom_prompt = True
     script.scenes[0].visual_prompt = "hand written"

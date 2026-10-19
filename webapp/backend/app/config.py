@@ -30,6 +30,11 @@ class WebSettings(BaseModel):
     render_backend: str = getenv("RENDER_BACKEND", get_pipeline_settings().generator_backend)
     prerendered_dir: Path = _path("PRERENDERED_DIR", "storage/demo")
     planner_backend: str = get_pipeline_settings().planner_backend
+    # TTS uses its own environment because Chatterbox has a separate dependency stack.
+    tts_enabled: bool = getenv("TTS_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
+    tts_python: Path = _path("TTS_PYTHON", "tts/venv/bin/python")
+    tts_gender: str = getenv("TTS_GENDER", "female")
+    tts_seed: int = int(getenv("TTS_SEED", "42"))
     max_upload_bytes: int = 10 * 1024 * 1024
     cors_origins: list[str] = [
         origin.strip()

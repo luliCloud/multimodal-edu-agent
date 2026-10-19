@@ -1,0 +1,17 @@
+[
+  {"speaker": "student_a", "gender": "female", "line": "Okay wait, I actually have to tell you something wild I read for orgo. You know how you, me, a tree, and literally every living thing... we're all built from basically one element?"},
+  {"speaker": "student_b", "gender": "male", "line": "One element? Come on, that seems way too simple."},
+  {"speaker": "student_a", "gender": "female", "line": "I know, right? But it's carbon. That's the whole deal with organic chemistry, it's just, the chemistry of carbon."},
+  {"speaker": "student_b", "gender": "male", "line": "Okay but why carbon though. Like, out of everything on the periodic table, why'd it get to be the main character?"},
+  {"speaker": "student_a", "gender": "female", "line": "So it's got four electrons it can share, which means it forms four solid bonds. And here's the fun part, it'll bond to other carbons too. Chains, rings, whatever."},
+  {"speaker": "student_b", "gender": "male", "line": "Huh. So it just... keeps building on itself."},
+  {"speaker": "student_a", "gender": "female", "line": "Exactly! That's literally why you get everything from methane, which is just one lonely carbon, all the way up to DNA with like a hundred million of them."},
+  {"speaker": "student_b", "gender": "male", "line": "Okay that's actually kind of insane. But then how does anyone even know what shape these things are? Like, molecules aren't flat little drawings."},
+  {"speaker": "student_a", "gender": "female", "line": "Ooh, okay, this part's my favorite. It's called hybridization. Basically carbon's orbitals melt together into a new shape right before it bonds."},
+  {"speaker": "student_b", "gender": "male", "line": "Melt together how."},
+  {"speaker": "student_a", "gender": "female", "line": "Three flavors. Four bonds spread out like a tripod, that's methane. A flat triangle for a double bond, that's ethylene. Or a straight line for a triple bond, like in acetylene."},
+  {"speaker": "student_b", "gender": "male", "line": "Wait, so the bonding basically sculpts the whole molecule's shape."},
+  {"speaker": "student_a", "gender": "female", "line": "Yes! And once you get that, you stop drawing every atom by hand, chemists just sketch these quick zig-zag lines instead."},
+  {"speaker": "student_b", "gender": "male", "line": "Okay, I get it now. Carbon's weird, it loves bonding to itself, and the shape of those bonds is basically everything."},
+  {"speaker": "student_a", "gender": "female", "line": "That's it. That's the whole chapter, honestly."}
+]

@@ -92,13 +92,14 @@ function ServerPill({ server }: { server: ServerInfo | null | undefined }) {
   const online = server !== null;
   return (
     <div
-      title={online ? `Planner: ${server.planner_backend} · Renderer: ${server.render_backend} · Storage: ${server.video_dir}` : "API server unreachable"}
+      title={online ? `Planner: ${server.planner_backend} · Renderer: ${server.render_backend} · Narration: ${server.tts_enabled ? "on" : "off"} · Storage: ${server.video_dir}` : "API server unreachable"}
       className="flex items-center gap-2 rounded-full border border-line bg-elevated px-3 py-1.5 text-xs text-ink-soft"
     >
       <span className={clsx("size-1.5 rounded-full", online ? "bg-ok" : "bg-bad")} />
       {online ? (
         <span className="hidden sm:inline">
           {server.planner_backend} planner · {server.render_backend} renderer
+          {server.tts_enabled ? " · narration on" : ""}
         </span>
       ) : (
         <span>API offline</span>

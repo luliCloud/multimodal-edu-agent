@@ -142,6 +142,10 @@ class TaskRunner:
                 prerendered_dir=self.settings.prerendered_dir,
                 assets_dir=self.store.assets_dir(project_id),
                 on_progress=on_progress, on_message=on_message,
+                tts_enabled=self.settings.tts_enabled,
+                tts_python=self.settings.tts_python,
+                tts_gender=self.settings.tts_gender,
+                tts_seed=self.settings.tts_seed,
             )
         except Exception as exc:  # noqa: BLE001
             if not isinstance(exc, UserFacingError):

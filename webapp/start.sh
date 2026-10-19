@@ -6,6 +6,7 @@
 #
 # Pipeline settings pass straight through, e.g.:
 #   PLANNER_BACKEND=qwen RENDER_BACKEND=wan ./webapp/start.sh
+#   PLANNER_BACKEND=qwen RENDER_BACKEND=wan TTS_ENABLED=1 ./webapp/start.sh
 # Ports can be changed with API_PORT / WEB_PORT. Ctrl+C stops both servers.
 
 set -euo pipefail

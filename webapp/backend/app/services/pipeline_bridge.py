@@ -25,6 +25,9 @@ from backend.app.services.storyboard_schema import (
 from webapp.backend.app.models import (
     EditableScene, EditableScript, ProjectVideo, SourcePreview, ValidationIssue,
 )
+from webapp.backend.app.services.narration import (
+    NarrationError, NarrationTrack, mux_narration, synthesize_narration,
+)
 from webapp.backend.app.services.storage import VideoStorage
 
 HUMAN_WORDS = ("human", "person", "child", "girl", "boy")
@@ -204,7 +207,8 @@ class _ProgressStore(InMemoryJobStore):
 
 
 def _upload_request(script: EditableScript, selected: list[int], backend: str,
-                    assets_dir: Path) -> UploadRequest:
+                    assets_dir: Path,
+                    timings: dict[int, tuple[float, float]] | None = None) -> UploadRequest:
     try:
         plan = _short_plan(script)
     except ValidationError:
@@ -216,7 +220,11 @@ def _upload_request(script: EditableScript, selected: list[int], backend: str,
                      if backend == "wan" and is_human else None)
         if reference is not None:
             assets_dir.mkdir(parents=True, exist_ok=True)
-        return upload_request_from_script(plan, selected, reference, None)
+        request = upload_request_from_script(plan, selected, reference, None)
+        if timings:
+            for number, segment in zip(selected, request.segments):
+                segment.start_seconds, segment.end_seconds = timings[number]
+        return request
     by_number = {scene.scene: scene for scene in script.scenes}
     return UploadRequest(title=script.title, segments=[
         SegmentRequest(
@@ -228,6 +236,8 @@ def _upload_request(script: EditableScript, selected: list[int], backend: str,
             motion=by_number[number].motion or None,
             narration=by_number[number].narration or None,
             narration_seconds=by_number[number].narration_seconds,
+            start_seconds=timings[number][0] if timings else None,
+            end_seconds=timings[number][1] if timings else None,
         )
         for number in selected
     ])
@@ -252,8 +262,12 @@ def render_videos(*, project_id: str, render_id: str, script: EditableScript,
                   selected: list[int], backend: str, filename: str,
                   storage: VideoStorage, render_dir: Path, prerendered_dir: Path,
                   assets_dir: Path, on_progress: Callable[[float], None],
-                  on_message: Callable[[str], None]) -> list[ProjectVideo]:
+                  on_message: Callable[[str], None], tts_enabled: bool = False,
+                  tts_python: Path | None = None, tts_gender: str = "female",
+                  tts_seed: int = 42) -> list[ProjectVideo]:
     prefix = f"{project_id}/{render_id}"
+    work_dir = render_dir / project_id / render_id
+    narration: NarrationTrack | None = None
 
     def stored(key: str, path: Path, kind: str, scene: int | None,
                duration: float | None, move: bool) -> ProjectVideo:
@@ -261,13 +275,31 @@ def render_videos(*, project_id: str, render_id: str, script: EditableScript,
         return ProjectVideo(key=item.key, kind=kind, scene=scene, url=storage.url(item.key),
                             duration_seconds=duration, size_bytes=item.size_bytes)
 
+    if tts_enabled:
+        on_message("Synthesizing narration with Chatterbox")
+        try:
+            narration = synthesize_narration(
+                script=script, selected=selected,
+                tts_python=tts_python or Path("tts/venv/bin/python"),
+                gender=tts_gender, work_dir=work_dir, seed=tts_seed,
+            )
+        except NarrationError as exc:
+            raise UserFacingError(str(exc)) from exc
+        on_message("Narration ready; matching scene timing to speech")
+
     if backend == "directory":
         source = _prerendered(prerendered_dir, [Path(filename).stem, script.title])
         on_message(f"Found pre-rendered video at {source}")
+        if narration:
+            on_message("Adding narration to final video")
+            source = mux_narration(source, narration.path, work_dir / "final-with-audio.mp4")
         on_progress(1.0)
         return [stored(f"{prefix}/final.mp4", source, "final", None, None, move=False)]
 
-    request = _upload_request(script, selected, backend, assets_dir)
+    request = _upload_request(
+        script, selected, backend, assets_dir,
+        narration.timings if narration else None,
+    )
     settings = PipelineSettings(generator_backend=backend, storage_dir=render_dir)
     try:
         pipeline = LocalPipeline(store=_ProgressStore(on_progress), settings=settings,
@@ -282,17 +314,26 @@ def render_videos(*, project_id: str, render_id: str, script: EditableScript,
 
     scene_videos = [video for video in job.videos if not video.segment_id.endswith("-combined")]
     combined = next((video for video in job.videos if video.segment_id.endswith("-combined")), None)
+    final_path = Path(combined.path) if combined is not None else None
+    if final_path is None and len(scene_videos) == 1:
+        final_path = Path(scene_videos[0].path)
+    if narration and final_path is not None:
+        on_message("Adding narration to final video")
+        final_path = mux_narration(
+            final_path, narration.path, work_dir / "final-with-audio.mp4"
+        )
+
     results = []
     for number, video in zip(selected, scene_videos):
         results.append(stored(f"{prefix}/scene-{number:02d}.mp4", Path(video.path), "scene",
                               number, video.duration_seconds, move=True))
     if combined is not None:
-        results.insert(0, stored(f"{prefix}/final.mp4", Path(combined.path), "final", None,
+        assert final_path is not None
+        results.insert(0, stored(f"{prefix}/final.mp4", final_path, "final", None,
                                  combined.duration_seconds, move=True))
     elif results:
-        only = storage.local_path(results[0].key)
+        only = final_path if narration else storage.local_path(results[0].key)
         if only is not None:
             results.insert(0, stored(f"{prefix}/final.mp4", only, "final", None,
-                                     results[0].duration_seconds, move=False))
+                                     results[0].duration_seconds, move=bool(narration)))
     return results
-

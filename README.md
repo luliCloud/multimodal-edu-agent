@@ -140,9 +140,36 @@ python -m backend.scripts.run_short_demo \
 ```
 
 Replace `mock` with `wan` for real inference. Qwen exits before video generation, so both
-models do not occupy the single GPU simultaneously. The combined MP4 currently contains
-the visual clips; `narration` and timing are present in the script, while TTS, burned-in
-captions and transitions remain the next media-composition stage.
+models do not occupy the single GPU simultaneously. The combined MP4 by itself contains
+only the visual clips with no audio; see below for generating and muxing in narration.
+Burned-in captions and transitions remain the next media-composition stage.
+
+## Syncing Narration Audio with the Video Script
+
+The local TTS module under [`tts/`](tts/) (Chatterbox voice cloning, fully offline) is
+intentionally decoupled from `backend/`: it has its own venv and dependencies. Run
+`./setup.sh wan` (macOS/Linux) or `.\setup.ps1 -Backend wan` (Windows) once per machine to
+create both venvs with the right dependencies for real GPU video generation (`mock`/
+`cuda_probe` also available, no GPU needed for those). Given a reviewed `script.json` from
+stage 1, one command then synthesizes its narration, renders the video sized to match the
+real (measured, not estimated) narration length, and muxes them into a single playable
+file:
+
+```bash
+python -m backend.scripts.run_synced_short_demo storage/demo/after_the_rain/script.json --gender female
+```
+
+Try it first with the bundled example (`examples/carbon_bonding/script.json`), which needs
+no GPU or Qwen planner run:
+
+```bash
+python -m backend.scripts.run_synced_short_demo examples/carbon_bonding/script.json --gender female
+```
+
+See [`tts/README.md`](tts/README.md) for the full architecture (why this has to run
+audio-then-video rather than in parallel), cross-platform setup (macOS/Linux/Windows), how
+to produce a `script.json` without a GPU (including a copy-paste prompt for generating one
+with any AI assistant), and the three steps individually.
 
 Start the API:
 
@@ -255,8 +282,11 @@ When generation fails a check,
 the worker re-prompts the model with the specific error while it is still
 loaded, up to `PLANNER_MAX_ATTEMPTS` times (default 3), rather than losing
 the run and its model load. Each scene also carries `narration` and a
-`narration_seconds` estimate at roughly 150 words per minute, which is the
-script input the audio stage needs. `visual_prompt` is ready for plain text-to-video;
+`narration_seconds` estimate at roughly 150 words per minute. Once the
+narration has actually been synthesized (see `tts/sync_storyboard_audio.py`
+below), `start_seconds`/`end_seconds` hold the real position of that scene
+in the narration track, and generators use that real duration to size the
+clip instead of the word-count estimate. `visual_prompt` is ready for plain text-to-video;
 `keyframe_prompt` is used to create a scene image from the canonical character asset.
 The Wan VACE path then receives both that character image and, when available, the scene
 keyframe. The extractive baseline fills the shared source, keyword and
@@ -306,9 +336,10 @@ in a browser to play a generated clip or the combined video.
 ## Next Implementation Step
 
 Generate the single character/state reference and one consistent keyframe per scene, then run
-image-to-video animation for each keyframe. Synthesize audio from `narration`
-and `narration_seconds`, add captions and transitions, and assemble the 15-second result.
-Keep the PDF plan reviewable before expensive image or video generation.
+image-to-video animation for each keyframe. Narration synthesis and audio/video muxing are
+done (see "Syncing Narration Audio with the Video Script" above); add burned-in captions and
+transitions, and assemble the 15-second result. Keep the PDF plan reviewable before expensive image or
+video generation.
 
 ## Tests
 

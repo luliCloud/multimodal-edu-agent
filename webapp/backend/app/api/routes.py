@@ -32,6 +32,7 @@ def health(request: Request) -> ServerInfo:
     settings, _, storage, _ = _services(request)
     return ServerInfo(planner_backend=settings.planner_backend,
                       render_backend=settings.render_backend,
+                      tts_enabled=settings.tts_enabled,
                       video_dir=str(settings.video_dir), storage=storage.name)
 
 

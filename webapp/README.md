@@ -22,6 +22,7 @@ and Ctrl+C stops both:
 ./webapp/start.sh                                         # dev mode, hot reload
 ./webapp/start.sh --prod                                  # production frontend build
 PLANNER_BACKEND=qwen RENDER_BACKEND=wan ./webapp/start.sh # GPU models
+TTS_ENABLED=1 TTS_GENDER=female ./webapp/start.sh        # embed narration audio
 API_PORT=8001 WEB_PORT=3001 ./webapp/start.sh             # other ports
 ```
 
@@ -53,6 +54,17 @@ uvicorn webapp.backend.app.main:app --port 8000
 # GPU box: Qwen planner + Wan video
 PLANNER_BACKEND=qwen RENDER_BACKEND=wan uvicorn webapp.backend.app.main:app --port 8000
 ```
+
+Run `./setup.sh wan` once before enabling narration. Chatterbox runs from its isolated
+`tts/venv`, then the web render uses its measured speech timing for each scene and muxes
+the combined WAV into `final.mp4` as AAC. Start the narrated GPU demo with:
+
+```bash
+PLANNER_BACKEND=qwen RENDER_BACKEND=wan TTS_ENABLED=1 TTS_GENDER=female \
+  ./webapp/start.sh --prod
+```
+
+Scene preview clips remain video-only; the final combined MP4 contains the narration.
 
 Run one API process (no `--workers`). The GPU lock lives in-process, as it does for the
 original API.
@@ -104,7 +116,7 @@ return a signed or CDN URL, and construct it in `main.py` in place of
 ## API
 
 ```text
-GET    /api/health                       planner/render backends, video dir
+GET    /api/health                       planner/render/TTS status, video dir
 GET    /api/projects                     project summaries
 POST   /api/projects                     multipart "file" (one PDF, ≤10 MB) → 202, planning starts
 GET    /api/projects/{id}                full project (poll while status is extracting/planning/rendering)

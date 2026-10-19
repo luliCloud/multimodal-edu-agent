@@ -3,6 +3,7 @@
 import hashlib
 import gc
 import logging
+import math
 import os
 import re
 from pathlib import Path
@@ -49,6 +50,23 @@ class WanVideoGenerator:
         if self._frames_explicit:
             return
         self.num_frames = self.frames_for_scene_count(scene_count, self.fps)
+        self._controlled.num_frames = self.num_frames
+        self._keyframe_motion.num_frames = self.num_frames
+
+    def fit_segment(self, segment: SegmentRequest, scene_count: int) -> None:
+        """Size this scene's clip from its actual synced narration duration
+        (segment.start_seconds/end_seconds, set by tts/sync_storyboard_audio.py)
+        when available, else fall back to the even 15s/scene_count split."""
+        if self._frames_explicit:
+            return
+        if segment.start_seconds is not None and segment.end_seconds is not None:
+            duration = max(segment.end_seconds - segment.start_seconds, 1 / self.fps)
+            # Wan only accepts 4*k+1 frames. Round upward so muxing never cuts off
+            # the final syllable of a narration segment.
+            target = duration * self.fps
+            self.num_frames = max(5, 4 * math.ceil((target - 1) / 4) + 1)
+        else:
+            self.num_frames = self.frames_for_scene_count(scene_count, self.fps)
         self._controlled.num_frames = self.num_frames
         self._keyframe_motion.num_frames = self.num_frames
 

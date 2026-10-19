@@ -138,6 +138,7 @@ export interface ServerInfo {
   status: string;
   planner_backend: string;
   render_backend: string;
+  tts_enabled: boolean;
   video_dir: string;
   storage: string;
 }

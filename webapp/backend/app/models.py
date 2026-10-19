@@ -163,5 +163,6 @@ class ServerInfo(BaseModel):
     status: str = "ok"
     planner_backend: str
     render_backend: str
+    tts_enabled: bool = False
     video_dir: str
     storage: str

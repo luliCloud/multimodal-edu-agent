@@ -1,0 +1,87 @@
+{
+  "title": "Carbon's Chains",
+  "summary": "A narrator explains how carbon's bonding ability builds every living thing around us.",
+  "character": {
+    "name": "narrator",
+    "kind": "human narrator",
+    "visual_identity": "a calm off-screen narrator voice",
+    "outfits": {"default": "unchanged from the reference"},
+    "states": {"default": "a calm off-screen narrator voice"}
+  },
+  "style": {
+    "type": "2D children's book illustration",
+    "palette": "soft pastel",
+    "shapes": "rounded",
+    "lighting": "soft",
+    "outline": "clean"
+  },
+  "scenes": [
+    {
+      "scene": 1,
+      "action": "Carbon atoms link together",
+      "location": "a glowing molecular space",
+      "weather": "clear",
+      "camera": "wide",
+      "motion": "Atoms drift and connect slowly.",
+      "narration": "Carbon can bond to itself over and over.",
+      "outfit_id": "default",
+      "state_id": "default",
+      "source_sentence_ids": [1],
+      "text": "Carbon can bond to itself over and over.",
+      "pages": [1],
+      "narration_seconds": 3.6
+    },
+    {
+      "scene": 2,
+      "action": "Chains and rings form",
+      "location": "a glowing molecular space",
+      "weather": "clear",
+      "camera": "medium",
+      "motion": "Chains curl into rings.",
+      "narration": "That forms long chains and tidy little rings.",
+      "outfit_id": "default",
+      "state_id": "default",
+      "source_sentence_ids": [2],
+      "text": "That forms long chains and tidy little rings.",
+      "pages": [1],
+      "narration_seconds": 3.6
+    },
+    {
+      "scene": 3,
+      "action": "A tree and a hand appear",
+      "location": "a bright outdoor scene",
+      "weather": "clear",
+      "camera": "wide",
+      "motion": "Camera pans across living things.",
+      "narration": "That is why every living thing is carbon based.",
+      "outfit_id": "default",
+      "state_id": "default",
+      "source_sentence_ids": [3],
+      "text": "That is why every living thing is carbon based.",
+      "pages": [1],
+      "narration_seconds": 3.6
+    },
+    {
+      "scene": 4,
+      "action": "Molecules sketch themselves as zig-zag lines",
+      "location": "a glowing molecular space",
+      "weather": "clear",
+      "camera": "close",
+      "motion": "Lines draw themselves quickly.",
+      "narration": "Organic chemistry is simply the chemistry of carbon.",
+      "outfit_id": "default",
+      "state_id": "default",
+      "source_sentence_ids": [4],
+      "text": "Organic chemistry is simply the chemistry of carbon.",
+      "pages": [1],
+      "narration_seconds": 3.6
+    }
+  ],
+  "source_sentences": [
+    {"id": 1, "page": 1, "text": "Carbon can bond to itself over and over."},
+    {"id": 2, "page": 1, "text": "That forms long chains and tidy little rings."},
+    {"id": 3, "page": 1, "text": "That is why every living thing is carbon based."},
+    {"id": 4, "page": 1, "text": "Organic chemistry is simply the chemistry of carbon."}
+  ],
+  "duration_seconds": 15
+}
