@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import tempfile
 import unittest
@@ -84,6 +85,54 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Multiple cached snapshots", result.stderr)
 
+    def test_launcher_refuses_login_node(self):
+        result = self.bash('bash scripts/hpc/webapp.slurm', timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("do not run on the login node", result.stderr)
+
+    def test_launcher_stops_its_backend_when_tunnel_fails(self):
+        # Use a tiny HTTP stub and fake Slurm/SSH commands to exercise real
+        # subprocess cleanup without contacting the cluster or running CUDA.
+        port = None
+        for candidate in range(24000, 24100):
+            with socket.socket() as probe:
+                try:
+                    probe.bind(("127.0.0.1", candidate))
+                except OSError:
+                    continue
+                port = candidate
+                break
+        self.assertIsNotNone(port)
+        bin_dir = self.root / "test-bin"
+        bin_dir.mkdir()
+        (bin_dir / "srun").write_text('#!/bin/bash\nshift\nexec "$@"\n')
+        (bin_dir / "ssh").write_text(
+            '#!/bin/bash\n[[ "$*" == *"127.0.0.1:"* ]] || exit 99\nsleep 1\nexit 7\n')
+        for script in bin_dir.iterdir():
+            script.chmod(0o755)
+        (self.shared / "torch.py").write_text(
+            'class cuda:\n'
+            '    @staticmethod\n    def device_count(): return 1\n'
+            '    @staticmethod\n    def synchronize(): pass\n'
+            '    @staticmethod\n    def get_device_name(n): return "test GPU"\n'
+            'device_count = cuda.device_count\n'
+            'class Value:\n    def item(self): return 1.0\n'
+            'def ones(*args, **kwargs): return Value()\n')
+        (self.shared / "uvicorn.py").write_text(
+            'import json, sys\nfrom http.server import BaseHTTPRequestHandler, HTTPServer\n'
+            'class Handler(BaseHTTPRequestHandler):\n'
+            '    def do_GET(self):\n'
+            '        self.send_response(200); self.end_headers()\n'
+            '        self.wfile.write(json.dumps({"status": "ok"}).encode())\n'
+            'HTTPServer(("127.0.0.1", int(sys.argv[-1])), Handler).serve_forever()\n')
+        self.env.update(SLURM_JOB_ID="test-job", HPC_PROJECT_ROOT=str(self.root),
+                        HPC_API_PORT=str(port), PATH=str(bin_dir) + os.pathsep + self.env["PATH"])
+        result = self.bash('bash scripts/hpc/webapp.slurm', timeout=20)
+        self.assertEqual(result.returncode, 7, result.stdout + result.stderr)
+        self.assertIn("Backend health:", result.stdout)
+        with socket.socket() as probe:
+            self.assertNotEqual(probe.connect_ex(("127.0.0.1", port)), 0,
+                                "Job left its API listener running")
 
 
 if __name__ == "__main__":
