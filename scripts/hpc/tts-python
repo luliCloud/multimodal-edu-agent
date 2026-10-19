@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Backend subprocesses inherit PYTHONPATH; keep Wan's packages out of TTS.
+set -euo pipefail
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+python="$root/tts/venv/bin/python"
+if [[ ! -x "$python" ]]; then
+  echo "TTS environment missing: $python" >&2
+  exit 1
+fi
+if ! grep -Eiq '^include-system-site-packages[[:space:]]*=[[:space:]]*false[[:space:]]*$' "$root/tts/venv/pyvenv.cfg"; then
+  echo 'TTS must use an isolated venv (include-system-site-packages = false).' >&2
+  exit 1
+fi
+exec env -u PYTHONPATH -u PYTHONHOME -u VIRTUAL_ENV \
+  PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 "$python" "$@"
